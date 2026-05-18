@@ -1,0 +1,83 @@
+name: AdBot - Daily Auto Post
+
+on:
+  schedule:
+    # 매일 오전 9시 (KST = UTC+9 → UTC 00:00)
+    - cron: "0 0 * * *"
+    # 매일 오후 3시 (KST = UTC 06:00)
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "생성할 글 수"
+        required: false
+        default: "3"
+      draft:
+        description: "초안으로 저장? (true/false)"
+        required: false
+        default: "false"
+      keyword:
+        description: "특정 키워드 (비워두면 트렌드 자동 수집)"
+        required: false
+        default: ""
+
+jobs:
+  run-adbot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: Blogger 인증 토큰 복원
+        run: |
+          mkdir -p config
+          echo '${{ secrets.BLOGGER_TOKEN_JSON }}' > config/token.json
+          echo '${{ secrets.BLOGGER_CREDENTIALS_JSON }}' > config/credentials.json
+
+      - name: AdBot 실행
+        env:
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          POSTS_PER_DAY: ${{ github.event.inputs.count || '3' }}
+          PUBLISH_AS_DRAFT: ${{ github.event.inputs.draft || 'false' }}
+          GITHUB_ACTIONS: "true"
+        run: |
+          cd src
+          if [ -n "${{ github.event.inputs.keyword }}" ]; then
+            python main.py --count ${{ github.event.inputs.count || 3 }} --keyword "${{ github.event.inputs.keyword }}"
+          elif [ "${{ github.event.inputs.draft }}" = "true" ]; then
+            python main.py --count ${{ github.event.inputs.count || 3 }} --draft
+          else
+            python main.py --count ${{ github.event.inputs.count || 3 }}
+          fi
+
+      - name: 업로드 로그 저장
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upload-log-${{ github.run_number }}
+          path: logs/upload_log.json
+          retention-days: 30
+
+      - name: 통계 출력
+        if: always()
+        env:
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
+          GITHUB_ACTIONS: "true"
+        run: |
+          cd src
+          python main.py --stats || true
