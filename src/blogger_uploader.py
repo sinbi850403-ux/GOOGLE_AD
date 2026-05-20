@@ -21,9 +21,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BLOG_ID = os.getenv("BLOGGER_BLOG_ID")
-TOKEN_PATH = Path("config/token.json")
-CREDENTIALS_PATH = Path("config/credentials.json")
-LOG_PATH = Path("logs/upload_log.json")
+BASE_DIR = Path(__file__).parent.parent
+TOKEN_PATH = BASE_DIR / "config/token.json"
+CREDENTIALS_PATH = BASE_DIR / "config/credentials.json"
+LOG_PATH = BASE_DIR / "logs/upload_log.json"
 SCOPES = ["https://www.googleapis.com/auth/blogger"]
 
 
@@ -172,7 +173,7 @@ class BloggerUploader:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         logs = []
         if LOG_PATH.exists():
-            with open(LOG_PATH) as f:
+            with open(LOG_PATH, encoding="utf-8") as f:
                 try:
                     logs = json.load(f)
                 except json.JSONDecodeError:
@@ -185,7 +186,7 @@ class BloggerUploader:
         """업로드 통계 조회"""
         if not LOG_PATH.exists():
             return {"total": 0, "published": 0, "draft": 0}
-        with open(LOG_PATH) as f:
+        with open(LOG_PATH, encoding="utf-8") as f:
             logs = json.load(f)
         return {
             "total": len(logs),

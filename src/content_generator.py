@@ -1,179 +1,200 @@
 """
-Claude API 기반 애드센스 최적화 블로그 글 생성 모듈
-- 애드센스 승인 기준: 오리지널 콘텐츠 1500자+, 명확한 구조, 광고 친화적 주제
-- 생성 결과: HTML 형식 (Blogger 직접 업로드용)
+Claude API 블로그 글 생성기
+- JSON 완전 제거: 파싱 오류 원천 차단
+- 매일 다른 글쓰기 각도(앵글) 자동 로테이션
+- 실패 시 자동 재시도 (최대 3회)
 """
 
 import os
 import re
+import hashlib
 import anthropic
+from datetime import date
 from dotenv import load_dotenv
+from pexels_image import replace_picsum
 
 load_dotenv()
 
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
-BLOG_LANGUAGE = os.getenv("BLOG_LANGUAGE", "ko")  # ko: 한국어, en: 영어
+BLOG_LANGUAGE  = os.getenv("BLOG_LANGUAGE", "ko")
 
+# ── 카테고리 감지 ──────────────────────────────────────────────
 
-# 애드센스 승인에 유리한 카테고리별 프롬프트 전략
-ADSENSE_HIGH_CPC_CATEGORIES = {
-    "재테크/금융": ["주식", "ETF", "적금", "대출", "보험", "코인", "부동산"],
-    "건강/의료": ["다이어트", "영양제", "운동", "건강검진", "질병"],
-    "IT/테크": ["AI", "스마트폰", "노트북", "앱", "소프트웨어"],
-    "여행/라이프": ["여행지", "맛집", "호텔", "항공"],
-    "교육/자기계발": ["자격증", "영어", "온라인강의", "책"],
+_CATEGORY_MAP = {
+    "재테크/금융":   ["주식", "ETF", "적금", "대출", "보험", "코인", "부동산", "비트코인", "투자", "펀드", "배당"],
+    "건강/의료":     ["다이어트", "영양제", "운동", "건강", "질병", "헬스", "체중", "수면", "비타민"],
+    "IT/테크":       ["AI", "인공지능", "스마트폰", "노트북", "앱", "소프트웨어", "ChatGPT", "자동화"],
+    "여행/라이프":   ["여행", "맛집", "호텔", "항공", "카페", "숙소", "관광"],
+    "교육/자기계발": ["자격증", "영어", "온라인강의", "책", "독서", "공부", "취업", "이직"],
 }
 
-
 def detect_category(keyword: str) -> str:
-    """키워드로 카테고리 감지"""
-    for category, kws in ADSENSE_HIGH_CPC_CATEGORIES.items():
+    for cat, kws in _CATEGORY_MAP.items():
         if any(k in keyword for k in kws):
-            return category
+            return cat
     return "라이프스타일"
 
 
-def build_system_prompt() -> str:
-    return """당신은 구글 애드센스 승인 전문가이자 SEO 최적화 블로그 작가입니다.
-다음 원칙을 반드시 준수하여 블로그 포스트를 작성하세요:
+# ── 매일 다른 글쓰기 각도 ─────────────────────────────────────
 
-[애드센스 승인 핵심 원칙]
-1. 완전한 오리지널 콘텐츠 - 복사/패러프레이징 금지
-2. 최소 1500자 이상의 충실한 내용
-3. 독자에게 실질적인 가치와 정보 제공
-4. 광고 친화적 주제 (혐오, 도박, 성인 내용 절대 금지)
-5. 자연스러운 키워드 배치 (키워드 스터핑 금지)
+_ANGLES = [
+    ("초보자 완전 정복",
+     "처음 시작하는 사람을 위해 A부터 Z까지 쉽게 설명하세요. 전문 용어는 반드시 풀어쓰고, 첫 단계부터 순서대로 안내하세요."),
+    ("실전 사례 분석",
+     "실제 사례와 구체적 수치를 중심으로 작성하세요. '누군가가 실제로 이렇게 했다'는 스토리텔링 구조로 독자의 공감을 이끌어내세요."),
+    ("오해와 진실",
+     "이 주제에 대한 흔한 오해 5가지를 먼저 나열하고 각각 반박하세요. '사람들이 틀리게 알고 있는 것'을 교정하는 형식으로 쓰세요."),
+    ("비용 vs 수익 완전 분석",
+     "숫자와 계산식을 적극 활용하세요. 실제 비용, 예상 수익, ROI, 리스크를 표 형식으로 정리하고 독자가 직접 계산해볼 수 있게 하세요."),
+    ("전문가 7가지 핵심 팁",
+     "현장 전문가 시각에서 대부분의 사람이 모르는 실용 팁 7가지를 엄선하세요. 각 팁마다 '왜 효과적인가'를 반드시 설명하세요."),
+    ("최신 트렌드 전망",
+     "최근 변화와 올해 트렌드를 분석하세요. 통계·연구 결과를 인용하고, 독자가 지금 당장 어떻게 대응해야 하는지 명확히 제시하세요."),
+    ("실수 피하는 법",
+     "초보자가 가장 많이 저지르는 실수 TOP 5를 중심으로 작성하세요. 각 실수의 원인, 결과, 예방법을 구체적으로 설명하세요."),
+]
 
-[HTML 구조 요구사항]
-- H1: 제목 (1개, 메인 키워드 포함)
-- H2: 주요 섹션 (4~6개)
-- H3: 소섹션 (각 H2 아래 2~3개)
-- 본문: <p> 태그 사용
-- 리스트: <ul>/<ol> 적극 활용
-- 이미지 alt 텍스트 포함한 <figure> 태그
-- 강조: <strong> 태그
-
-[SEO 요구사항]
-- 제목에 메인 키워드 포함
-- 첫 문단에 메인 키워드 자연스럽게 삽입
-- 관련 키워드(LSI) 자연스럽게 분산 배치
-- 메타 설명 (150자 이내) 별도 제공
-
-출력 형식: JSON
-{
-  "title": "SEO 최적화된 제목",
-  "meta_description": "검색 결과에 표시될 설명 (150자 이내)",
-  "labels": ["태그1", "태그2", "태그3"],
-  "html_content": "완전한 HTML 본문"
-}"""
+def pick_angle(keyword: str) -> tuple:
+    """키워드 + 오늘 날짜 조합으로 각도 결정 → 매일 자동 변경"""
+    seed = keyword + str(date.today())
+    idx  = int(hashlib.md5(seed.encode()).hexdigest(), 16) % len(_ANGLES)
+    return _ANGLES[idx]
 
 
-def build_user_prompt(keyword: str, category: str) -> str:
-    lang_instruction = "반드시 한국어로 작성하세요." if BLOG_LANGUAGE == "ko" else "Write in English."
-    return f"""키워드: "{keyword}"
+# ── 구분자 기반 파싱 (JSON 완전 제거) ─────────────────────────
+
+SEP = "###"
+
+def _extract(raw: str, tag: str) -> str | None:
+    pattern = rf"{re.escape(SEP)}{tag}{re.escape(SEP)}\s*(.*?)\s*(?={re.escape(SEP)}|\Z)"
+    m = re.search(pattern, raw, re.DOTALL)
+    return m.group(1).strip() if m else None
+
+def parse_response(raw: str) -> dict | None:
+    title  = _extract(raw, "TITLE")
+    meta   = _extract(raw, "META")
+    labels = _extract(raw, "LABELS")
+    html   = _extract(raw, "HTML")
+
+    if not all([title, meta, labels, html]):
+        return None
+
+    return {
+        "title":            title,
+        "meta_description": meta,
+        "labels":           [l.strip() for l in labels.split(",") if l.strip()],
+        "html_content":     html,
+    }
+
+
+# ── 프롬프트 빌더 ─────────────────────────────────────────────
+
+def build_prompt(keyword: str, category: str, recent_titles: list[str] = None) -> str:
+    lang = "반드시 한국어로 작성하세요." if BLOG_LANGUAGE == "ko" else "Write in English."
+    angle_name, angle_inst = pick_angle(keyword)
+    year = date.today().year
+
+    avoid = ""
+    if recent_titles:
+        avoid = (
+            "\n[절대 금지] 아래 기존 제목과 동일하거나 유사한 주제·제목 사용 금지:\n"
+            + "\n".join(f"  - {t}" for t in recent_titles[-20:])
+            + "\n"
+        )
+
+    return f"""당신은 구글 애드센스 최적화 전문 블로그 작가입니다.
+{lang}
+
+키워드: {keyword}
 카테고리: {category}
-{lang_instruction}
+글쓰기 각도: [{angle_name}]
+각도 설명: {angle_inst}
+{avoid}
+[작성 조건]
+- 제목: [{angle_name}] 관점이 드러나는 독창적 제목, 숫자 또는 {year} 포함, 50자 이내
+- 메타 설명: 검색 결과에 표시될 설명, 150자 이내
+- 라벨: 관련 태그 5개, 쉼표로 구분
+- 본문: 최소 1500자 HTML, H2 섹션 5개 이상, 각 H2 아래 H3 2개 이상
+- 구체적 수치·예시·단계 포함, 마지막 섹션에서 독자 행동 유도
 
-위 키워드로 구글 애드센스 승인에 최적화된 블로그 포스트를 작성하세요.
+[출력 형식 엄수 — 이 형식 외 다른 텍스트 절대 금지]
+{SEP}TITLE{SEP}
+제목을 여기에
+{SEP}META{SEP}
+메타 설명을 여기에
+{SEP}LABELS{SEP}
+태그1,태그2,태그3,태그4,태그5
+{SEP}HTML{SEP}
+HTML 본문 전체를 여기에
+{SEP}END{SEP}"""
 
-요구사항:
-- 제목: 클릭하고 싶게 만드는 SEO 제목 (숫자/연도 포함 권장)
-- 본문: 최소 1500자, HTML 형식
-- 구조: H1 > H2(5개 이상) > H3 > 본문 단락
-- 실용적인 정보: 구체적인 수치, 예시, 팁 포함
-- 마무리: 독자 행동 유도 (댓글 유도, 관련 주제 언급)
-- labels: 관련 태그 5개 (Blogger 라벨용)
 
-JSON 형식으로만 응답하세요."""
-
+# ── 생성기 ────────────────────────────────────────────────────
 
 class ContentGenerator:
     def __init__(self):
         self.client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-        self.model = "claude-sonnet-4-6"
+        self.model  = "claude-sonnet-4-6"
 
-    def generate(self, keyword: str) -> dict | None:
-        """
-        키워드로 블로그 포스트 생성
-        반환: {"title": ..., "meta_description": ..., "labels": [...], "html_content": ...}
-        """
-        category = detect_category(keyword)
-        print(f"  생성 중: '{keyword}' (카테고리: {category})")
+    def generate(self, keyword: str, recent_titles: list[str] = None) -> dict | None:
+        category   = detect_category(keyword)
+        angle_name = pick_angle(keyword)[0]
+        print(f"  생성: '{keyword}' [{angle_name}] ({category})")
 
-        try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                system=build_system_prompt(),
-                messages=[
-                    {"role": "user", "content": build_user_prompt(keyword, category)}
-                ],
-            )
+        prompt = build_prompt(keyword, category, recent_titles)
 
-            raw = response.content[0].text.strip()
-            # JSON 블록 추출 (마크다운 코드블록 제거)
-            raw = re.sub(r"^```json\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
+        for attempt in range(3):
+            try:
+                resp = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=8192,
+                    messages=[{"role": "user", "content": prompt}],
+                )
 
-            import json
-            post = json.loads(raw)
+                raw  = resp.content[0].text
+                post = parse_response(raw)
 
-            # 필수 필드 검증
-            required = ["title", "meta_description", "labels", "html_content"]
-            for field in required:
-                if field not in post:
-                    raise ValueError(f"응답에 '{field}' 필드 없음")
+                if post is None:
+                    print(f"  시도 {attempt+1}: 형식 불일치, 재시도...")
+                    continue
 
-            # 콘텐츠 길이 검증 (1000자 이상)
-            text_only = re.sub(r"<[^>]+>", "", post["html_content"])
-            if len(text_only) < 1000:
-                print(f"  경고: 콘텐츠가 너무 짧음 ({len(text_only)}자) - 재생성 시도")
-                return self._regenerate_longer(keyword, category)
+                text_len = len(re.sub(r"<[^>]+>", "", post["html_content"]))
+                if text_len < 800:
+                    print(f"  시도 {attempt+1}: 본문 짧음 ({text_len}자), 재시도...")
+                    continue
 
-            print(f"  완료: '{post['title']}' ({len(text_only)}자)")
-            return post
+                # Pexels 이미지로 교체
+                post["html_content"] = replace_picsum(post["html_content"], keyword)
 
-        except Exception as e:
-            print(f"  [오류] 콘텐츠 생성 실패: {e}")
-            return None
+                print(f"  완료: '{post['title']}' ({text_len}자)")
+                return post
 
-    def _regenerate_longer(self, keyword: str, category: str) -> dict | None:
-        """콘텐츠가 짧을 때 더 길게 재생성"""
-        try:
-            extended_prompt = build_user_prompt(keyword, category) + "\n\n중요: 각 H2 섹션마다 최소 300자 이상 작성하세요."
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=8192,
-                system=build_system_prompt(),
-                messages=[{"role": "user", "content": extended_prompt}],
-            )
-            raw = response.content[0].text.strip()
-            raw = re.sub(r"^```json\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-            import json
-            return json.loads(raw)
-        except Exception as e:
-            print(f"  [오류] 재생성 실패: {e}")
-            return None
+            except Exception as e:
+                print(f"  시도 {attempt+1} 오류: {e}")
 
-    def generate_batch(self, keywords: list[dict]) -> list[dict]:
-        """여러 키워드 배치 생성"""
-        results = []
+        print(f"  [실패] '{keyword}' 3회 시도 후 포기")
+        return None
+
+    def generate_batch(self, keywords: list[dict], recent_titles: list[str] = None) -> list[dict]:
+        results    = []
+        all_titles = list(recent_titles or [])
         for kw_data in keywords:
             keyword = kw_data["keyword"]
-            post = self.generate(keyword)
+            post    = self.generate(keyword, recent_titles=all_titles)
             if post:
                 post["source_keyword"] = keyword
-                post["trend_score"] = kw_data.get("score", 0)
+                post["trend_score"]    = kw_data.get("score", 0)
+                all_titles.append(post["title"])
                 results.append(post)
         return results
 
 
 if __name__ == "__main__":
     gen = ContentGenerator()
-    result = gen.generate("ETF 투자 방법")
+    result = gen.generate("비트코인 투자")
     if result:
         print(f"\n제목: {result['title']}")
+        print(f"앵글: {pick_angle('비트코인 투자')[0]}")
         print(f"메타: {result['meta_description']}")
         print(f"태그: {result['labels']}")
-        print(f"본문 길이: {len(result['html_content'])}자")
+        print(f"본문: {len(result['html_content'])}자")

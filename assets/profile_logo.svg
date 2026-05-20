@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0f2e"/>
+      <stop offset="100%" style="stop-color:#0d2a6e"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0c040"/>
+      <stop offset="100%" style="stop-color:#ffdf80"/>
+    </linearGradient>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4f9eff"/>
+      <stop offset="100%" style="stop-color:#00e5ff"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <clipPath id="circle">
+      <circle cx="100" cy="100" r="96"/>
+    </clipPath>
+  </defs>
+
+  <!-- 원형 배경 -->
+  <circle cx="100" cy="100" r="100" fill="url(#bgGrad)"/>
+
+  <!-- 외곽 골드 링 -->
+  <circle cx="100" cy="100" r="96" fill="none" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.8"/>
+
+  <!-- 내부 콘텐츠 (원형 클립) -->
+  <g clip-path="url(#circle)">
+
+    <!-- 격자 배경 -->
+    <g opacity="0.07" stroke="#4f9eff" stroke-width="1">
+      <line x1="0" y1="50" x2="200" y2="50"/>
+      <line x1="0" y1="100" x2="200" y2="100"/>
+      <line x1="0" y1="150" x2="200" y2="150"/>
+      <line x1="50" y1="0" x2="50" y2="200"/>
+      <line x1="100" y1="0" x2="100" y2="200"/>
+      <line x1="150" y1="0" x2="150" y2="200"/>
+    </g>
+
+    <!-- 주식 차트 라인 (하단) -->
+    <g filter="url(#glow)" opacity="0.5">
+      <polyline
+        points="10,160 30,145 50,150 70,120 90,130 110,95 130,105 150,75 170,85 190,55"
+        fill="none" stroke="url(#blueGrad)" stroke-width="2" stroke-linejoin="round"/>
+      <polygon
+        points="10,160 30,145 50,150 70,120 90,130 110,95 130,105 150,75 170,85 190,55 200,55 200,200 10,200"
+        fill="#4f9eff" opacity="0.06"/>
+    </g>
+
+    <!-- AI 뉴럴 노드 (좌측 상단) -->
+    <g opacity="0.3" filter="url(#glow)">
+      <line x1="20" y1="40" x2="45" y2="65" stroke="#4f9eff" stroke-width="1"/>
+      <line x1="20" y1="40" x2="50" y2="30" stroke="#4f9eff" stroke-width="1"/>
+      <line x1="45" y1="65" x2="70" y2="50" stroke="#4f9eff" stroke-width="1"/>
+      <line x1="50" y1="30" x2="70" y2="50" stroke="#4f9eff" stroke-width="1"/>
+      <circle cx="20" cy="40" r="3" fill="#4f9eff"/>
+      <circle cx="50" cy="30" r="2.5" fill="#00e5ff"/>
+      <circle cx="45" cy="65" r="3" fill="#4f9eff"/>
+      <circle cx="70" cy="50" r="3.5" fill="#4f9eff"/>
+    </g>
+
+  </g>
+
+  <!-- 중앙 심볼: T 글자 (트렌드) -->
+  <text x="100" y="115" text-anchor="middle"
+    font-family="'Arial Black', sans-serif"
+    font-size="72" font-weight="900"
+    fill="white" opacity="0.95"
+    filter="url(#glow)">T</text>
+
+  <!-- 골드 언더라인 -->
+  <rect x="68" y="122" width="64" height="3" rx="1.5" fill="url(#goldGrad)" opacity="0.9"/>
+
+  <!-- 하단 텍스트 -->
+  <text x="100" y="148" text-anchor="middle"
+    font-family="'Arial', sans-serif"
+    font-size="11" font-weight="600"
+    fill="#a0c4ff" letter-spacing="3" opacity="0.8">TREND</text>
+
+</svg>

@@ -102,6 +102,14 @@ class TrendCollector:
     # 통합 수집 + 순위 산정
     # ──────────────────────────────────────────
 
+    # 재테크 + AI 시드 키워드 (Google Trends 실패 시 fallback)
+    SEED_KEYWORDS = [
+        "ETF 투자 방법", "주식 배당주 추천", "ISA 계좌 개설", "연금저축 세액공제",
+        "부동산 투자 초보", "비트코인 전망", "달러 환율 전망", "적금 금리 비교",
+        "챗GPT 활용법", "AI 부업 방법", "클로드 사용법", "노코드 자동화",
+        "AI 이미지 생성", "유튜브 AI 편집", "ChatGPT 프롬프트", "AI 수익화",
+    ]
+
     def get_top_keywords(self, top_n: int = 5) -> list[dict]:
         """
         구글 + 네이버 트렌드를 합산해서 상위 키워드 반환
@@ -110,6 +118,12 @@ class TrendCollector:
         print("트렌드 수집 시작...")
         google_trends = self.get_google_realtime_trends(limit=30)
         time.sleep(random.uniform(1.5, 3.0))  # rate limit 방지
+
+        # Google Trends 실패 시 시드 키워드로 fallback
+        if not google_trends:
+            print("  Google Trends 실패 → 시드 키워드 사용")
+            selected = random.sample(self.SEED_KEYWORDS, min(top_n, len(self.SEED_KEYWORDS)))
+            return [{"keyword": kw, "score": 100 - i*5, "sources": ["seed"]} for i, kw in enumerate(selected)]
 
         # 구글 점수 정규화 (0~100)
         combined: dict[str, dict] = {}
