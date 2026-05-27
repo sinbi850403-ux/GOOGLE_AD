@@ -3,6 +3,7 @@
 """
 
 import json
+import os
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -159,8 +160,16 @@ def _match_trend_to_category(trends: list[dict], category: str, already: list[st
 
 
 def _pick_from_pool(category: str, used: list[str]) -> str:
+    """
+    사용 안 한 키워드 중 GITHUB_RUN_ID 기반 오프셋으로 선택.
+    같은 날 두 번 실행해도 서로 다른 키워드를 고른다.
+    """
     pool = KEYWORD_POOL.get(category, [])
-    for kw in pool:
-        if kw not in used:
-            return kw
-    return pool[0] if pool else category
+    unused = [kw for kw in pool if kw not in used]
+    if not unused:
+        return pool[0] if pool else category
+
+    # GitHub Actions 실행마다 다른 run_id → 다른 인덱스
+    run_id = os.getenv("GITHUB_RUN_ID", "0")
+    offset = int(run_id) % len(unused) if run_id.isdigit() else 0
+    return unused[offset]

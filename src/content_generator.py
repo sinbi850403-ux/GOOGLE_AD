@@ -70,19 +70,33 @@ def _extract(raw: str, tag: str) -> str | None:
     m = re.search(pattern, raw, re.DOTALL)
     return m.group(1).strip() if m else None
 
+def _parse_labels(raw_labels: str) -> list[str]:
+    """쉼표·개행·불릿 등 다양한 형식으로 출력된 라벨을 파싱"""
+    # 전각 쉼표(，) → 반각 쉼표
+    text = raw_labels.replace("，", ",").replace("、", ",")
+    # 불릿/번호 리스트(-, *, 1.) → 쉼표 구분으로 통일
+    text = re.sub(r"[\-\*\d]+[\.\)]\s*", ",", text)
+    # 개행 → 쉼표
+    text = text.replace("\n", ",")
+    result = [l.strip().lstrip("-*").strip() for l in text.split(",") if l.strip().lstrip("-*").strip()]
+    return result[:7]  # 최대 7개
+
+
 def parse_response(raw: str) -> dict | None:
     title  = _extract(raw, "TITLE")
     meta   = _extract(raw, "META")
     labels = _extract(raw, "LABELS")
     html   = _extract(raw, "HTML")
 
-    if not all([title, meta, labels, html]):
+    if not all([title, meta, html]):
         return None
+
+    parsed_labels = _parse_labels(labels) if labels else []
 
     return {
         "title":            title,
         "meta_description": meta,
-        "labels":           [l.strip() for l in labels.split(",") if l.strip()],
+        "labels":           parsed_labels,
         "html_content":     html,
     }
 
@@ -163,10 +177,21 @@ class ContentGenerator:
                     print(f"  시도 {attempt+1}: 본문 짧음 ({text_len}자), 재시도...")
                     continue
 
+                # 라벨 폴백: 파싱 실패 시 키워드+카테고리로 자동 생성
+                if not post["labels"]:
+                    year = str(date.today().year)
+                    post["labels"] = [
+                        keyword.replace(" ", ""),
+                        category.replace("/", ""),
+                        year + keyword.split()[0] if keyword.split() else year,
+                        angle_name.replace(" ", ""),
+                    ]
+                    print(f"  라벨 폴백 적용: {post['labels']}")
+
                 # Pexels 이미지로 교체
                 post["html_content"] = replace_picsum(post["html_content"], keyword)
 
-                print(f"  완료: '{post['title']}' ({text_len}자)")
+                print(f"  완료: '{post['title']}' ({text_len}자) | 태그: {len(post['labels'])}개")
                 return post
 
             except Exception as e:

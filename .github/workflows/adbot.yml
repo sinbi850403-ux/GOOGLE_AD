@@ -25,10 +25,17 @@ jobs:
   run-adbot:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # 동시 실행 방지 (같은 시간대 중복 트리거 시)
+    concurrency:
+      group: adbot-post
+      cancel-in-progress: false
 
     steps:
       - name: 코드 체크아웃
         uses: actions/checkout@v4
+        with:
+          # 로그 커밋을 위해 쓰기 권한 필요
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Python 3.11 설치
         uses: actions/setup-python@v5
@@ -45,6 +52,13 @@ jobs:
           echo '${{ secrets.BLOGGER_TOKEN_JSON }}' > config/token.json
           echo '${{ secrets.BLOGGER_CREDENTIALS_JSON }}' > config/credentials.json
 
+      - name: 이전 로그 복원 (중복 방지 상태)
+        run: |
+          mkdir -p src/logs
+          cp -f logs/*.json src/logs/ 2>/dev/null || true
+          echo "복원된 로그:"
+          ls src/logs/ 2>/dev/null || echo "없음 (첫 실행)"
+
       - name: AdBot 실행
         env:
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
@@ -54,6 +68,7 @@ jobs:
           POSTS_PER_DAY: ${{ github.event.inputs.count || '3' }}
           PUBLISH_AS_DRAFT: ${{ github.event.inputs.draft || 'false' }}
           GITHUB_ACTIONS: "true"
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           cd src
           if [ -n "${{ github.event.inputs.keyword }}" ]; then
@@ -64,14 +79,6 @@ jobs:
             python main.py --count ${{ github.event.inputs.count || 3 }}
           fi
 
-      - name: 업로드 로그 저장
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: upload-log-${{ github.run_number }}
-          path: logs/upload_log.json
-          retention-days: 30
-
       - name: 통계 출력
         if: always()
         env:
@@ -81,3 +88,15 @@ jobs:
         run: |
           cd src
           python main.py --stats || true
+
+      - name: 로그 상태 저장 (중복 방지용)
+        if: always()
+        run: |
+          git config user.name "AdBot[bot]"
+          git config user.email "adbot@github-actions"
+          # src/logs/ → 루트 logs/ 로 경로 통일
+          mkdir -p logs
+          cp -f src/logs/*.json logs/ 2>/dev/null || true
+          git add logs/ || true
+          git diff --cached --quiet || git commit -m "chore: AdBot 실행 로그 업데이트 [skip ci]"
+          git push || true
