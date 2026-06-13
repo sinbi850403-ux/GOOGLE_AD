@@ -15,8 +15,59 @@ from pexels_image import replace_picsum
 
 load_dotenv()
 
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
-BLOG_LANGUAGE  = os.getenv("BLOG_LANGUAGE", "ko")
+CLAUDE_API_KEY  = os.getenv("CLAUDE_API_KEY")
+BLOG_LANGUAGE   = os.getenv("BLOG_LANGUAGE", "ko")
+ADSENSE_CLIENT  = os.getenv("ADSENSE_CLIENT", "ca-pub-2764893290310463")
+ADSENSE_SLOT    = os.getenv("ADSENSE_SLOT", "")
+
+# ── AdSense 광고 삽입 ─────────────────────────────────────────
+
+_ADSENSE_UNIT = """\
+<div style="margin:24px 0;text-align:center;">
+<ins class="adsbygoogle"
+     style="display:block"
+     data-ad-client="{client}"
+     data-ad-slot="{slot}"
+     data-ad-format="auto"
+     data-full-width-responsive="true"></ins>
+<script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
+</div>"""
+
+_ADSENSE_AUTO = """\
+<div style="margin:24px 0;text-align:center;">
+<ins class="adsbygoogle"
+     style="display:block"
+     data-ad-client="{client}"
+     data-ad-format="auto"
+     data-full-width-responsive="true"></ins>
+<script>(adsbygoogle = window.adsbygoogle || []).push({{}});</script>
+</div>"""
+
+def _build_ad_unit() -> str:
+    if ADSENSE_SLOT:
+        return _ADSENSE_UNIT.format(client=ADSENSE_CLIENT, slot=ADSENSE_SLOT)
+    return _ADSENSE_AUTO.format(client=ADSENSE_CLIENT)
+
+def inject_adsense(html: str) -> str:
+    """H2 태그 사이마다 AdSense 광고 단위를 삽입 (2번째, 4번째 H2 이후)."""
+    if not ADSENSE_CLIENT:
+        return html
+    ad = _build_ad_unit()
+    h2_positions = [m.start() for m in re.finditer(r"<h2[\s>]", html, re.IGNORECASE)]
+    # 2번째, 4번째 H2 이후에 광고 삽입 (삽입 위치 오프셋 누적)
+    insert_after = {1, 3}  # 0-indexed
+    offset = 0
+    for i, pos in enumerate(h2_positions):
+        if i in insert_after:
+            # 해당 H2 블록의 </h2> 뒤를 찾아 광고 삽입
+            close = html.find("</h2>", pos + offset)
+            if close == -1:
+                continue
+            insert_at = close + len("</h2>") + offset
+            html = html[:insert_at] + "\n" + ad + html[insert_at:]
+            offset += len(ad) + 1
+    return html
+
 
 # ── 카테고리 감지 ──────────────────────────────────────────────
 
@@ -129,6 +180,7 @@ def build_prompt(keyword: str, category: str, recent_titles: list[str] = None) -
 - 메타 설명: 검색 결과에 표시될 설명, 150자 이내
 - 라벨: 관련 태그 5개, 쉼표로 구분
 - 본문: 최소 1500자 HTML, H2 섹션 5개 이상, 각 H2 아래 H3 2개 이상
+- 각 H2 섹션 시작 직후 반드시 이미지 태그 삽입: <img src="https://picsum.photos/800/450?random=1" alt="관련 이미지" style="width:100%;max-width:800px;border-radius:8px;margin:12px 0"> (random= 값은 섹션마다 다른 숫자 사용)
 - 구체적 수치·예시·단계 포함, 마지막 섹션에서 독자 행동 유도
 
 [출력 형식 엄수 — 이 형식 외 다른 텍스트 절대 금지]
@@ -190,6 +242,9 @@ class ContentGenerator:
 
                 # Pexels 이미지로 교체
                 post["html_content"] = replace_picsum(post["html_content"], keyword)
+
+                # AdSense 광고 삽입
+                post["html_content"] = inject_adsense(post["html_content"])
 
                 print(f"  완료: '{post['title']}' ({text_len}자) | 태그: {len(post['labels'])}개")
                 return post
