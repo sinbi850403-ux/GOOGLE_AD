@@ -6,6 +6,7 @@ Pexels API 이미지 검색
 
 import os
 import re
+import random
 import requests
 from dotenv import load_dotenv
 
@@ -67,15 +68,19 @@ _DEFAULT_QUERIES = [
     "business productivity office",
     "technology lifestyle modern",
     "korean lifestyle trend",
+    "people working success",
+    "finance money growth",
+    "nature outdoor relaxing",
+    "food cooking healthy",
+    "education learning study",
 ]
 
 
 def _to_english_query(keyword: str) -> str:
-    """한국어 키워드를 Pexels 영어 검색어로 변환"""
-    for ko, en in _KW_MAP.items():
-        if ko in keyword:
-            return en
-    # 매핑 없으면 기본 쿼리 중 하나 반환
+    """한국어 키워드를 Pexels 영어 검색어로 변환 (매칭 여러 개면 랜덤 선택)"""
+    matched = [en for ko, en in _KW_MAP.items() if ko in keyword]
+    if matched:
+        return random.choice(matched)
     idx = hash(keyword) % len(_DEFAULT_QUERIES)
     return _DEFAULT_QUERIES[idx]
 
@@ -91,14 +96,30 @@ def fetch_images(keyword: str, count: int = 3) -> list[str]:
     query = _to_english_query(keyword)
 
     try:
+        # 페이지를 넓게 랜덤 선택해 매번 다른 이미지 확보
+        page = random.randint(1, 15)
         resp = requests.get(
             PEXELS_SEARCH,
             headers={"Authorization": PEXELS_API_KEY},
-            params={"query": query, "per_page": count + 3, "orientation": "landscape"},
+            params={"query": query, "per_page": count + 5, "page": page, "orientation": "landscape"},
             timeout=10,
         )
         resp.raise_for_status()
         photos = resp.json().get("photos", [])
+
+        if not photos:
+            # 빈 페이지면 1페이지로 재시도
+            page = random.randint(1, 3)
+            resp = requests.get(
+                PEXELS_SEARCH,
+                headers={"Authorization": PEXELS_API_KEY},
+                params={"query": query, "per_page": count + 5, "page": page, "orientation": "landscape"},
+                timeout=10,
+            )
+            photos = resp.json().get("photos", [])
+
+        # 가져온 사진 중 랜덤으로 섞어서 반환
+        random.shuffle(photos)
         return [p["src"]["large2x"] for p in photos[:count]]
     except Exception as e:
         print(f"  [Pexels] 이미지 검색 실패: {e}")
