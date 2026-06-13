@@ -25,7 +25,16 @@ jobs:
   run-adbot:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    jobs:
+  run-adbot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:          # ← 여기 추가
+      contents: write     # ← 여기 추가
+    
     # 동시 실행 방지 (같은 시간대 중복 트리거 시)
+
+    
     concurrency:
       group: adbot-post
       cancel-in-progress: false
