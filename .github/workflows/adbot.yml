@@ -25,16 +25,8 @@ jobs:
   run-adbot:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    jobs:
-  run-adbot:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:          # ← 여기 추가
-      contents: write     # ← 여기 추가
-    
-    # 동시 실행 방지 (같은 시간대 중복 트리거 시)
-
-    
+    permissions:
+      contents: write
     concurrency:
       group: adbot-post
       cancel-in-progress: false
@@ -43,7 +35,6 @@ jobs:
       - name: 코드 체크아웃
         uses: actions/checkout@v4
         with:
-          # 로그 커밋을 위해 쓰기 권한 필요
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Python 3.11 설치
@@ -103,7 +94,6 @@ jobs:
         run: |
           git config user.name "AdBot[bot]"
           git config user.email "adbot@github-actions"
-          # src/logs/ → 루트 logs/ 로 경로 통일
           mkdir -p logs
           cp -f src/logs/*.json logs/ 2>/dev/null || true
           git add logs/ || true
