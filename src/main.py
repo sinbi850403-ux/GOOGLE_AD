@@ -22,6 +22,8 @@ from content_generator import ContentGenerator
 from blogger_uploader import BloggerUploader
 from topic_rotator import get_diverse_keywords, mark_used
 from coupang_affiliate import build_product_section
+from indexing_submitter import submit_new_posts, is_configured as indexing_configured
+from static_blog_publisher import StaticBlogPublisher
 
 load_dotenv()
 
@@ -58,10 +60,12 @@ def run_pipeline(
     count: int = DEFAULT_POSTS_PER_DAY,
     draft: bool = PUBLISH_DRAFT,
     specific_keyword: str = None,
+    static_mode: bool = False,
 ):
+    mode_label = "정적HTML" if static_mode else ("초안" if draft else "즉시 발행")
     print(f"\n{'='*60}")
     print(f"  AdBot 실행: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  목표 {count}개 | {'초안' if draft else '즉시 발행'}")
+    print(f"  목표 {count}개 | {mode_label}")
     print(f"{'='*60}\n")
 
     # ── 1단계: 키워드 수집 ──────────────────────
@@ -101,19 +105,44 @@ def run_pipeline(
 
     print(f"\n  {len(posts)}개 포스트 생성 완료")
 
-    # ── 3단계: Blogger 업로드 ──────────────────
-    print("\n[3/3] Blogger 업로드 중...")
-    uploader = BloggerUploader()
-    results  = uploader.upload_batch(posts, draft=draft, delay=POST_DELAY_SECONDS)
+    if static_mode:
+        # ── 3단계 (정적 모드): HTML 파일로 저장 ──
+        print("\n[3/3] 정적 HTML 발행 중...")
+        publisher = StaticBlogPublisher()
+        results   = publisher.publish_batch(posts)
 
-    if not specific_keyword:
-        mark_used([p["source_keyword"] for p in posts])
+        if not specific_keyword:
+            mark_used([p["source_keyword"] for p in posts])
 
-    stats = uploader.get_upload_stats()
-    print(f"\n{'='*60}")
-    print(f"  완료! {len(results)}개 업로드 성공")
-    print(f"  누적 발행: {stats['published']}개 | 초안: {stats['draft']}개")
-    print(f"{'='*60}\n")
+        pstats = StaticBlogPublisher.get_stats()
+        print(f"\n{'='*60}")
+        print(f"  완료! {len(results)}개 정적 HTML 발행")
+        print(f"  누적 발행: {pstats['total']}개 | 마지막: {pstats['last']}")
+        print(f"  위치: oneul-jangbu/public/blog/posts/")
+        print(f"{'='*60}\n")
+    else:
+        # ── 3단계 (기본 모드): Blogger 업로드 ──────────────────
+        print("\n[3/3] Blogger 업로드 중...")
+        uploader = BloggerUploader()
+        results  = uploader.upload_batch(posts, draft=draft, delay=POST_DELAY_SECONDS)
+
+        if not specific_keyword:
+            mark_used([p["source_keyword"] for p in posts])
+
+        # ── 4단계: Google 색인 요청 ────────────────────────
+        uploaded_urls = [r.get("url", "") for r in results if r.get("url")]
+        if uploaded_urls and indexing_configured():
+            print("\n[4/4] Google 색인 요청 중...")
+            submit_new_posts(uploaded_urls)
+        elif uploaded_urls:
+            print("\n[4/4] 색인 자동 요청 건너뜀 (config/service_account.json 없음)")
+            print("       설정: python src/indexing_submitter.py --setup")
+
+        stats = uploader.get_upload_stats()
+        print(f"\n{'='*60}")
+        print(f"  완료! {len(results)}개 업로드 성공")
+        print(f"  누적 발행: {stats['published']}개 | 초안: {stats['draft']}개")
+        print(f"{'='*60}\n")
 
 
 def run_scheduled():
@@ -128,22 +157,25 @@ def run_scheduled():
 
 def main():
     parser = argparse.ArgumentParser(description="AdBot")
-    parser.add_argument("--draft",   action="store_true")
+    parser.add_argument("--draft",   action="store_true", help="Blogger 초안으로 저장")
     parser.add_argument("--count",   type=int, default=DEFAULT_POSTS_PER_DAY)
     parser.add_argument("--keyword", type=str, default=None)
     parser.add_argument("--daemon",  action="store_true")
     parser.add_argument("--stats",   action="store_true")
+    parser.add_argument("--static",  action="store_true", help="정적 HTML로 저장 (오늘장부 블로그)")
     args = parser.parse_args()
 
     if args.stats:
         stats = BloggerUploader().get_upload_stats()
         print(f"전체: {stats['total']}  발행: {stats['published']}  초안: {stats['draft']}  마지막: {stats['last_upload']}")
+        pstats = StaticBlogPublisher.get_stats()
+        print(f"정적블로그: {pstats['total']}개  마지막: {pstats['last']}")
         return
 
     if args.daemon:
         run_scheduled()
     else:
-        run_pipeline(count=args.count, draft=args.draft, specific_keyword=args.keyword)
+        run_pipeline(count=args.count, draft=args.draft, specific_keyword=args.keyword, static_mode=args.static)
 
 
 if __name__ == "__main__":
