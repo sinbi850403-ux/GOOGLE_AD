@@ -147,13 +147,21 @@ def run_pipeline(
 
 
 def run_scheduled():
-    print("AdBot 스케줄러 시작 (매일 09:00, 15:00)")
-    schedule.every().day.at("09:00").do(run_pipeline)
-    schedule.every().day.at("15:00").do(run_pipeline)
-    run_pipeline()
+    """1시간마다 1개씩, 7개 카테고리 순환 발행"""
+    from topic_rotator import get_current_category, CATEGORY_ORDER
+    print("AdBot 스케줄러 시작 (매 1시간 자동 발행)")
+    print(f"  카테고리 순환: {' → '.join(CATEGORY_ORDER)}")
+
+    def _job():
+        cat = get_current_category()
+        print(f"\n[스케줄] 현재 카테고리: {cat}")
+        run_pipeline(count=1, static_mode=True)
+
+    _job()  # 즉시 1회 실행
+    schedule.every(1).hours.do(_job)
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        time.sleep(30)
 
 
 def main():
