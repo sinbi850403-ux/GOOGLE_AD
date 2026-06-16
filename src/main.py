@@ -61,6 +61,7 @@ def run_pipeline(
     draft: bool = PUBLISH_DRAFT,
     specific_keyword: str = None,
     static_mode: bool = False,
+    no_push: bool = False,
 ):
     mode_label = "정적HTML" if static_mode else ("초안" if draft else "즉시 발행")
     print(f"\n{'='*60}")
@@ -109,7 +110,7 @@ def run_pipeline(
         # ── 3단계 (정적 모드): HTML 파일로 저장 ──
         print("\n[3/3] 정적 HTML 발행 중...")
         publisher = StaticBlogPublisher()
-        results   = publisher.publish_batch(posts)
+        results   = publisher.publish_batch(posts, auto_push=not no_push)
 
         if not specific_keyword:
             mark_used([p["source_keyword"] for p in posts])
@@ -118,7 +119,7 @@ def run_pipeline(
         print(f"\n{'='*60}")
         print(f"  완료! {len(results)}개 정적 HTML 발행")
         print(f"  누적 발행: {pstats['total']}개 | 마지막: {pstats['last']}")
-        print(f"  위치: oneul-jangbu/public/blog/posts/")
+        print(f"  위치: oneul/apps/jangbu/public/blog/posts/")
         print(f"{'='*60}\n")
     else:
         # ── 3단계 (기본 모드): Blogger 업로드 ──────────────────
@@ -162,7 +163,8 @@ def main():
     parser.add_argument("--keyword", type=str, default=None)
     parser.add_argument("--daemon",  action="store_true")
     parser.add_argument("--stats",   action="store_true")
-    parser.add_argument("--static",  action="store_true", help="정적 HTML로 저장 (오늘장부 블로그)")
+    parser.add_argument("--static",   action="store_true", help="정적 HTML로 저장 (오늘장부 블로그)")
+    parser.add_argument("--no-push",  action="store_true", help="git push 건너뜀 (로컬 저장만)")
     args = parser.parse_args()
 
     if args.stats:
@@ -175,7 +177,8 @@ def main():
     if args.daemon:
         run_scheduled()
     else:
-        run_pipeline(count=args.count, draft=args.draft, specific_keyword=args.keyword, static_mode=args.static)
+        run_pipeline(count=args.count, draft=args.draft, specific_keyword=args.keyword,
+                     static_mode=args.static, no_push=args.no_push)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,13 @@
 """
 정적 HTML 블로그 발행기
-AdBot이 생성한 콘텐츠를 oneul-jangbu/public/blog/posts/*.html 로 저장
-blog-manifest.json 및 sitemap.xml 자동 갱신
+AdBot이 생성한 콘텐츠를 oneul/apps/jangbu/public/blog/posts/*.html 로 저장
+blog-manifest.json 및 sitemap.xml 자동 갱신 후 git push까지 자동 처리
 """
 
 import json
 import re
 import os
+import subprocess
 from pathlib import Path
 from datetime import date, datetime
 from slugify import slugify  # python-slugify
@@ -16,7 +17,10 @@ from slugify import slugify  # python-slugify
 
 _HERE   = Path(__file__).resolve().parent
 _ROOT   = _HERE.parent
-JANGBU  = Path(os.getenv("JANGBU_PATH", str(_ROOT.parent / "oneul-jangbu")))
+# 기본값: GOOGLE_AD 옆에 있는 oneul/apps/jangbu (실제 Vercel 배포 레포)
+JANGBU  = Path(os.getenv("JANGBU_PATH", str(_ROOT.parent / "oneul" / "apps" / "jangbu")))
+# git push할 레포 루트 (oneul 모노레포)
+GIT_ROOT = Path(os.getenv("GIT_ROOT", str(_ROOT.parent / "oneul")))
 
 BLOG_DIR     = JANGBU / "public" / "blog"
 POSTS_DIR    = BLOG_DIR / "posts"
@@ -333,7 +337,7 @@ class StaticBlogPublisher:
         print(f"  [정적발행] {out.name} ({category})")
         return entry
 
-    def publish_batch(self, posts: list) -> list:
+    def publish_batch(self, posts: list, auto_push: bool = True) -> list:
         results = []
         for p in posts:
             r = self.publish(p)
@@ -341,7 +345,29 @@ class StaticBlogPublisher:
                 results.append(r)
         if results:
             _log([{"title": r["title"], "slug": r["slug"], "date": r["date"]} for r in results])
+            if auto_push:
+                self._git_push(results)
         return results
+
+    def _git_push(self, results: list):
+        titles = ", ".join(r["title"][:20] + "..." for r in results[:3])
+        msg    = f"feat(blog): 자동 발행 {len(results)}개 - {date.today().isoformat()}\n\n{titles}"
+
+        try:
+            def run(cmd: list):
+                subprocess.run(cmd, cwd=str(GIT_ROOT), check=True,
+                               capture_output=True, text=True)
+
+            run(["git", "add", "apps/jangbu/public/blog/"])
+            run(["git", "commit", "-m", msg])
+            run(["git", "push", "origin", "main"])
+            print(f"  [Git] 자동 push 완료 → Vercel 배포 시작!")
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.strip() if e.stderr else ""
+            if "nothing to commit" in stderr or "nothing added" in stderr:
+                print("  [Git] 변경 없음 - push 건너뜀")
+            else:
+                print(f"  [Git] push 실패: {stderr[:200]}")
 
     @staticmethod
     def get_stats() -> dict:
