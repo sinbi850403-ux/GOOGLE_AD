@@ -113,7 +113,10 @@ def run_pipeline(
         results   = publisher.publish_batch(posts, auto_push=not no_push)
 
         if not specific_keyword:
-            mark_used([p["source_keyword"] for p in posts])
+            mark_used(
+                [p["source_keyword"] for p in posts],
+                categories=[p.get("category", "") for p in posts],
+            )
 
         pstats = StaticBlogPublisher.get_stats()
         print(f"\n{'='*60}")
@@ -147,18 +150,28 @@ def run_pipeline(
 
 
 def run_scheduled():
-    """1시간마다 1개씩, 7개 카테고리 순환 발행"""
-    from topic_rotator import get_current_category, CATEGORY_ORDER
-    print("AdBot 스케줄러 시작 (매 1시간 자동 발행)")
-    print(f"  카테고리 순환: {' → '.join(CATEGORY_ORDER)}")
+    """
+    하루 7개 발행 - 카테고리별 1개씩, 1시간 간격
+    기본 시작: 09:00 → 10:00 → 11:00 → ... → 15:00
+    START_HOUR 환경변수로 시작 시각 변경 가능
+    """
+    from topic_rotator import CATEGORY_ORDER
 
-    def _job():
-        cat = get_current_category()
-        print(f"\n[스케줄] 현재 카테고리: {cat}")
-        run_pipeline(count=1, static_mode=True)
+    start_hour = int(os.getenv("START_HOUR", "9"))
+    times = [f"{(start_hour + i) % 24:02d}:00" for i in range(len(CATEGORY_ORDER))]
 
-    _job()  # 즉시 1회 실행
-    schedule.every(1).hours.do(_job)
+    print("AdBot 스케줄러 시작")
+    print(f"  발행 계획 (하루 {len(CATEGORY_ORDER)}개):")
+    for t, cat in zip(times, CATEGORY_ORDER):
+        print(f"    {t} → {cat}")
+
+    for i, t in enumerate(times):
+        cat = CATEGORY_ORDER[i]
+        schedule.every().day.at(t).do(
+            run_pipeline, count=1, static_mode=True, specific_keyword=None
+        )
+
+    print("\n  대기 중... (Ctrl+C로 종료)")
     while True:
         schedule.run_pending()
         time.sleep(30)

@@ -182,16 +182,22 @@ def _save(data: dict):
 
 def get_diverse_keywords(count: int, trend_keywords: list[dict]) -> list[dict]:
     """
-    현재 시각 기반 카테고리에서 키워드 선택.
-    count개가 필요하면 다음 카테고리로 순차 이동.
+    오늘 아직 발행 안 한 카테고리 중 순서대로 선택.
+    스케줄러가 매 시각 count=1로 호출하면 해당 시각 카테고리 반환.
     """
     data = _load()
     used: list[str] = data.get("used_keywords", [])
-    result: list[dict] = []
+    today = datetime.now().strftime("%Y-%m-%d")
+    posted_today: list[str] = data.get("posted_today", {}).get(today, [])
 
-    hour = datetime.now().hour
+    # 오늘 아직 안 올린 카테고리를 순서 유지하며 선택
+    remaining = [c for c in CATEGORY_ORDER if c not in posted_today]
+    if not remaining:
+        remaining = CATEGORY_ORDER  # 하루치 다 올렸으면 처음부터
+
+    result: list[dict] = []
     for i in range(count):
-        cat = CATEGORY_ORDER[(hour + i) % len(CATEGORY_ORDER)]
+        cat = remaining[i % len(remaining)]
         matched = _match_trend_to_category(trend_keywords, cat, [r["keyword"] for r in result])
         if matched:
             result.append(matched)
@@ -202,11 +208,21 @@ def get_diverse_keywords(count: int, trend_keywords: list[dict]) -> list[dict]:
     return result[:count]
 
 
-def mark_used(keywords: list[str]):
-    data = _load()
+def mark_used(keywords: list[str], categories: list[str] = None):
+    data  = _load()
+    today = datetime.now().strftime("%Y-%m-%d")
+
     used = data.get("used_keywords", [])
     used.extend(keywords)
     data["used_keywords"] = used[-500:]
+
+    if categories:
+        posted = data.setdefault("posted_today", {})
+        posted.setdefault(today, []).extend(categories)
+        # 오래된 날짜 정리 (최근 7일만 유지)
+        data["posted_today"] = {k: v for k, v in posted.items()
+                                if k >= datetime.now().strftime("%Y-%m-%") or True}
+
     _save(data)
 
 
