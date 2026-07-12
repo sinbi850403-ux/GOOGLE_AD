@@ -22,6 +22,8 @@ from content_generator import ContentGenerator
 from blogger_uploader import BloggerUploader
 from topic_rotator import get_diverse_keywords, mark_used
 from coupang_affiliate import build_product_section
+from indexing_submitter import submit_new_posts, is_configured as indexing_configured
+from static_blog_publisher import StaticBlogPublisher
 
 load_dotenv()
 
@@ -58,10 +60,13 @@ def run_pipeline(
     count: int = DEFAULT_POSTS_PER_DAY,
     draft: bool = PUBLISH_DRAFT,
     specific_keyword: str = None,
+    static_mode: bool = False,
+    no_push: bool = False,
 ):
+    mode_label = "정적HTML" if static_mode else ("초안" if draft else "즉시 발행")
     print(f"\n{'='*60}")
     print(f"  AdBot 실행: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  목표 {count}개 | {'초안' if draft else '즉시 발행'}")
+    print(f"  목표 {count}개 | {mode_label}")
     print(f"{'='*60}\n")
 
     # ── 1단계: 키워드 수집 ──────────────────────
@@ -101,49 +106,100 @@ def run_pipeline(
 
     print(f"\n  {len(posts)}개 포스트 생성 완료")
 
-    # ── 3단계: Blogger 업로드 ──────────────────
-    print("\n[3/3] Blogger 업로드 중...")
-    uploader = BloggerUploader()
-    results  = uploader.upload_batch(posts, draft=draft, delay=POST_DELAY_SECONDS)
+    if static_mode:
+        # ── 3단계 (정적 모드): HTML 파일로 저장 ──
+        print("\n[3/3] 정적 HTML 발행 중...")
+        publisher = StaticBlogPublisher()
+        results   = publisher.publish_batch(posts, auto_push=not no_push)
 
-    if not specific_keyword:
-        mark_used([p["source_keyword"] for p in posts])
+        if not specific_keyword:
+            mark_used(
+                [p["source_keyword"] for p in posts],
+                categories=[p.get("category", "") for p in posts],
+            )
 
-    stats = uploader.get_upload_stats()
-    print(f"\n{'='*60}")
-    print(f"  완료! {len(results)}개 업로드 성공")
-    print(f"  누적 발행: {stats['published']}개 | 초안: {stats['draft']}개")
-    print(f"{'='*60}\n")
+        pstats = StaticBlogPublisher.get_stats()
+        print(f"\n{'='*60}")
+        print(f"  완료! {len(results)}개 정적 HTML 발행")
+        print(f"  누적 발행: {pstats['total']}개 | 마지막: {pstats['last']}")
+        print(f"  위치: oneul/apps/jangbu/public/blog/posts/")
+        print(f"{'='*60}\n")
+    else:
+        # ── 3단계 (기본 모드): Blogger 업로드 ──────────────────
+        print("\n[3/3] Blogger 업로드 중...")
+        uploader = BloggerUploader()
+        results  = uploader.upload_batch(posts, draft=draft, delay=POST_DELAY_SECONDS)
+
+        if not specific_keyword:
+            mark_used([p["source_keyword"] for p in posts])
+
+        # ── 4단계: Google 색인 요청 ────────────────────────
+        uploaded_urls = [r.get("url", "") for r in results if r.get("url")]
+        if uploaded_urls and indexing_configured():
+            print("\n[4/4] Google 색인 요청 중...")
+            submit_new_posts(uploaded_urls)
+        elif uploaded_urls:
+            print("\n[4/4] 색인 자동 요청 건너뜀 (config/service_account.json 없음)")
+            print("       설정: python src/indexing_submitter.py --setup")
+
+        stats = uploader.get_upload_stats()
+        print(f"\n{'='*60}")
+        print(f"  완료! {len(results)}개 업로드 성공")
+        print(f"  누적 발행: {stats['published']}개 | 초안: {stats['draft']}개")
+        print(f"{'='*60}\n")
 
 
 def run_scheduled():
-    print("AdBot 스케줄러 시작 (매일 09:00, 15:00)")
-    schedule.every().day.at("09:00").do(run_pipeline)
-    schedule.every().day.at("15:00").do(run_pipeline)
-    run_pipeline()
+    """
+    하루 7개 발행 - 카테고리별 1개씩, 1시간 간격
+    기본 시작: 09:00 → 10:00 → 11:00 → ... → 15:00
+    START_HOUR 환경변수로 시작 시각 변경 가능
+    """
+    from topic_rotator import CATEGORY_ORDER
+
+    start_hour = int(os.getenv("START_HOUR", "9"))
+    times = [f"{(start_hour + i) % 24:02d}:00" for i in range(len(CATEGORY_ORDER))]
+
+    print("AdBot 스케줄러 시작")
+    print(f"  발행 계획 (하루 {len(CATEGORY_ORDER)}개):")
+    for t, cat in zip(times, CATEGORY_ORDER):
+        print(f"    {t} → {cat}")
+
+    for i, t in enumerate(times):
+        cat = CATEGORY_ORDER[i]
+        schedule.every().day.at(t).do(
+            run_pipeline, count=1, static_mode=True, specific_keyword=None
+        )
+
+    print("\n  대기 중... (Ctrl+C로 종료)")
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        time.sleep(30)
 
 
 def main():
     parser = argparse.ArgumentParser(description="AdBot")
-    parser.add_argument("--draft",   action="store_true")
+    parser.add_argument("--draft",   action="store_true", help="Blogger 초안으로 저장")
     parser.add_argument("--count",   type=int, default=DEFAULT_POSTS_PER_DAY)
     parser.add_argument("--keyword", type=str, default=None)
     parser.add_argument("--daemon",  action="store_true")
     parser.add_argument("--stats",   action="store_true")
+    parser.add_argument("--static",   action="store_true", help="정적 HTML로 저장 (오늘장부 블로그)")
+    parser.add_argument("--no-push",  action="store_true", help="git push 건너뜀 (로컬 저장만)")
     args = parser.parse_args()
 
     if args.stats:
         stats = BloggerUploader().get_upload_stats()
         print(f"전체: {stats['total']}  발행: {stats['published']}  초안: {stats['draft']}  마지막: {stats['last_upload']}")
+        pstats = StaticBlogPublisher.get_stats()
+        print(f"정적블로그: {pstats['total']}개  마지막: {pstats['last']}")
         return
 
     if args.daemon:
         run_scheduled()
     else:
-        run_pipeline(count=args.count, draft=args.draft, specific_keyword=args.keyword)
+        run_pipeline(count=args.count, draft=args.draft, specific_keyword=args.keyword,
+                     static_mode=args.static, no_push=args.no_push)
 
 
 if __name__ == "__main__":
