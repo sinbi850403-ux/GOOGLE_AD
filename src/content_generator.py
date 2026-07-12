@@ -167,7 +167,7 @@ def build_prompt(keyword: str, category: str, recent_titles: list[str] = None) -
             + "\n"
         )
 
-    return f"""당신은 구글 애드센스 최적화 전문 블로그 작가입니다.
+    return f"""당신은 네이버·유튜브 상위 콘텐츠를 분석해 체류시간을 극대화하는 블로그 전문 작가입니다.
 {lang}
 
 키워드: {keyword}
@@ -175,13 +175,23 @@ def build_prompt(keyword: str, category: str, recent_titles: list[str] = None) -
 글쓰기 각도: [{angle_name}]
 각도 설명: {angle_inst}
 {avoid}
-[작성 조건]
-- 제목: [{angle_name}] 관점이 드러나는 독창적 제목, 숫자 또는 {year} 포함, 50자 이내
+[제목 작성 조건]
+- [{angle_name}] 관점이 드러나는 독창적 제목, 숫자 또는 {year} 포함, 50자 이내
+- 놀라움·공감·불안·욕망 중 하나의 심리 트리거를 반드시 활용
+- 예시 패턴: "몰랐던 사실", "이것만 알면", "왜 안 되는지", "지금 당장"
+
+[본문 구조 — 체류형 포스팅]
+① 도입부 (첫 3문장): 독자의 공감을 끌어내는 강한 훅 → "나도 이런 경험 있어"를 느끼게
+② 본문 흐름: 공감 → 정보 → 실제 사례 → 핵심 정리 순서로 구성
+③ 문단은 3~4줄 이내로 짧게, 줄바꿈 자주 → 스크롤이 자연스럽게 이어지도록
+④ 마지막 섹션: 핵심 체크리스트(✅ 형식) + 부드러운 CTA(독자 행동 유도)
+
+[HTML 작성 조건]
+- 최소 1500자, H2 섹션 5개 이상, 각 H2 아래 H3 2개 이상
+- 각 H2 섹션 시작 직후 반드시 이미지 태그 삽입: <img src="https://picsum.photos/800/450?random=1" alt="관련 이미지" style="width:100%;max-width:800px;border-radius:8px;margin:12px 0"> (random= 값은 섹션마다 다른 숫자 사용)
+- 구체적 수치·예시·단계 포함
 - 메타 설명: 검색 결과에 표시될 설명, 150자 이내
 - 라벨: 관련 태그 5개, 쉼표로 구분
-- 본문: 최소 1500자 HTML, H2 섹션 5개 이상, 각 H2 아래 H3 2개 이상
-- 각 H2 섹션 시작 직후 반드시 이미지 태그 삽입: <img src="https://picsum.photos/800/450?random=1" alt="관련 이미지" style="width:100%;max-width:800px;border-radius:8px;margin:12px 0"> (random= 값은 섹션마다 다른 숫자 사용)
-- 구체적 수치·예시·단계 포함, 마지막 섹션에서 독자 행동 유도
 
 [출력 형식 엄수 — 이 형식 외 다른 텍스트 절대 금지]
 {SEP}TITLE{SEP}
