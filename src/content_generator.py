@@ -148,7 +148,7 @@ HTML 본문 전체를 여기에
 class ContentGenerator:
     def __init__(self):
         self.client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-        self.model  = "claude-sonnet-4-6"
+        self.model  = "claude-haiku-4-5"
 
     def generate(self, keyword: str, recent_titles: list[str] = None) -> dict | None:
         category   = detect_category(keyword)

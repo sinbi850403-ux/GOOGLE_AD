@@ -1,5 +1,6 @@
 name: AdBot - Daily Auto Post
 
+# 회차당 1편 × 하루 2회 = 하루 2편 (API 비용 상한 관리)
 on:
   schedule:
     # 매일 오전 9시 (KST = UTC+9 → UTC 00:00)
@@ -9,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       count:
-        description: "생성할 글 수"
+        description: "생성할 글 수 (회차당)"
         required: false
-        default: "3"
+        default: "1"
       draft:
         description: "초안으로 저장? (true/false)"
         required: false
@@ -67,18 +68,18 @@ jobs:
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          POSTS_PER_DAY: ${{ github.event.inputs.count || '3' }}
+          POSTS_PER_DAY: ${{ github.event.inputs.count || '1' }}
           PUBLISH_AS_DRAFT: ${{ github.event.inputs.draft || 'false' }}
           GITHUB_ACTIONS: "true"
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           cd src
           if [ -n "${{ github.event.inputs.keyword }}" ]; then
-            python main.py --count ${{ github.event.inputs.count || 3 }} --keyword "${{ github.event.inputs.keyword }}"
+            python main.py --count ${{ github.event.inputs.count || 1 }} --keyword "${{ github.event.inputs.keyword }}"
           elif [ "${{ github.event.inputs.draft }}" = "true" ]; then
-            python main.py --count ${{ github.event.inputs.count || 3 }} --draft
+            python main.py --count ${{ github.event.inputs.count || 1 }} --draft
           else
-            python main.py --count ${{ github.event.inputs.count || 3 }}
+            python main.py --count ${{ github.event.inputs.count || 1 }}
           fi
 
       - name: 통계 출력

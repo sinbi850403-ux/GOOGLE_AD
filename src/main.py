@@ -94,8 +94,9 @@ def run_pipeline(
     posts = ContentGenerator().generate_batch(keywords, recent_titles=recent_titles)
 
     if not posts:
-        print("생성된 포스트 없음 - 종료")
-        return
+        # 종료코드 0으로 끝내면 워크플로가 success로 떠서 조용히 아무것도 발행되지
+        # 않는다. API 한도·인증 오류를 즉시 알아채려면 실패로 끝내야 한다.
+        raise SystemExit("생성된 포스트 없음 - 실패 처리")
 
     # ── 2.5단계: 쿠팡파트너스 상품 삽입 ────────
     for post in posts:
