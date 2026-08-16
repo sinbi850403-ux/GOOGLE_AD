@@ -95,7 +95,10 @@ class BloggerUploader:
             return result
 
         after = patched.get("url", before)
-        if slug not in after:
+        # Blogger 는 슬러그를 임의 길이에서 자른다(실제로 40자 부근).
+        # 완전 일치를 요구하면 정상 동작을 실패로 오판하므로 앞부분만 본다.
+        url_slug = after.rsplit("/", 1)[-1].removesuffix(".html")
+        if not url_slug or not (slug.startswith(url_slug) or url_slug.startswith(slug)):
             print(f"  [경고] 주소에 슬러그가 남지 않았습니다: {after}")
         elif after != before:
             print(f"  [경고] 제목 변경으로 주소가 바뀌었습니다: {before} → {after}")
