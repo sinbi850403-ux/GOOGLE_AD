@@ -68,23 +68,54 @@ class BloggerUploader:
     # 포스트 업로드
     # ──────────────────────────────────────────
 
+    def _retitle(self, result: dict, title: str, slug: str) -> dict:
+        """발행 직후 제목을 한글로 되돌린다. 주소가 따라 바뀌지 않는지 확인하고,
+        바뀌었다면 이 방법이 통하지 않는 것이므로 로그로 알린다."""
+        before = result.get("url", "")
+        try:
+            patched = (
+                self.service.posts()
+                .patch(blogId=BLOG_ID, postId=result["id"], body={"title": title})
+                .execute()
+            )
+        except HttpError as e:
+            print(f"  [제목 복원 실패] {e} — 영문 제목으로 남습니다. 수동 수정 필요")
+            return result
+
+        after = patched.get("url", before)
+        if slug not in after:
+            print(f"  [경고] 주소에 슬러그가 남지 않았습니다: {after}")
+        elif after != before:
+            print(f"  [경고] 제목 변경으로 주소가 바뀌었습니다: {before} → {after}")
+        return patched
+
     def upload_post(
         self,
         title: str,
         html_content: str,
         labels: list[str] = None,
         draft: bool = False,
+        slug: str = None,
     ) -> dict | None:
         """
         Blogger에 포스트 업로드
         draft=True: 초안 저장 (검토 후 발행)
         draft=False: 즉시 발행
+
+        slug: URL 에 넣을 영문 주소. Blogger API 는 permalink 를 직접 지정하는
+        기능이 없고, 발행 시점의 제목으로 주소를 만든 뒤 고정한다. 한글 제목은
+        그 과정에서 통째로 버려져 /2026-vs-7.html 같은 주소가 나온다(실제로
+        100편이 그렇게 발행돼 3개월간 클릭 0을 기록했다).
+        그래서 영문 제목으로 먼저 발행해 주소를 잡고, 곧바로 제목만 한글로
+        바꾼다. 주소는 발행 때 고정되므로 그대로 남는다.
         """
         if not BLOG_ID:
             raise ValueError("BLOGGER_BLOG_ID 환경변수가 설정되지 않았습니다.")
 
+        # 초안은 아직 주소가 정해지지 않아 이 방법을 쓸 수 없다.
+        use_slug = bool(slug) and not draft
         body = {
-            "title": title,
+            "title": slug.replace("-", " ") if use_slug else title,
             "content": html_content,
             "labels": labels or [],
         }
@@ -102,6 +133,9 @@ class BloggerUploader:
                     .insert(blogId=BLOG_ID, body=body, isDraft=False)
                     .execute()
                 )
+
+            if use_slug:
+                result = self._retitle(result, title, slug)
 
             post_url = result.get("url", "")
             post_id = result.get("id", "")
@@ -126,7 +160,7 @@ class BloggerUploader:
             if e.resp.status == 429:
                 print("  API 한도 초과 - 60초 대기 후 재시도")
                 time.sleep(60)
-                return self.upload_post(title, html_content, labels, draft)
+                return self.upload_post(title, html_content, labels, draft, slug)
             return None
 
     def upload_batch(self, posts: list[dict], draft: bool = False, delay: int = 10) -> list[dict]:
@@ -142,6 +176,7 @@ class BloggerUploader:
                 html_content=post["html_content"],
                 labels=post.get("labels", []),
                 draft=draft,
+                slug=post.get("slug"),
             )
             if result:
                 results.append(result)

@@ -72,6 +72,19 @@ def _extract(raw: str, tag: str) -> str | None:
     m = re.search(pattern, raw, re.DOTALL)
     return m.group(1).strip() if m else None
 
+def sanitize_slug(raw: str | None) -> str | None:
+    """모델이 준 슬러그를 URL 에 넣어도 안전한 형태로 정리한다.
+    영문·숫자·하이픈만 남기므로 한글이 섞여 오면 그 부분은 사라진다."""
+    if not raw:
+        return None
+    s = raw.strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    if len(s) > 60:
+        s = s[:60].rstrip("-")
+    # 너무 짧으면 키워드가 안 담긴 것이라 쓰지 않는다(그럴 바엔 기존 동작).
+    return s if len(s) >= 8 else None
+
+
 def parse_response(raw: str) -> dict | None:
     title  = _extract(raw, "TITLE")
     meta   = _extract(raw, "META")
@@ -83,6 +96,8 @@ def parse_response(raw: str) -> dict | None:
 
     return {
         "title":            title,
+        # 없으면 None — 업로더가 종전 방식으로 처리한다(주소만 나빠질 뿐 발행은 된다).
+        "slug":             sanitize_slug(_extract(raw, "SLUG")),
         "meta_description": meta,
         "labels":           [l.strip() for l in labels.split(",") if l.strip()],
         "html_content":     html,
@@ -131,9 +146,17 @@ def build_prompt(keyword: str, category: str, recent_titles: list[str] = None) -
 - 메타 설명: 검색 결과에 표시될 설명, 150자 이내
 - 라벨: 관련 태그 5개, 쉼표로 구분
 
+- 슬러그: URL 에 들어갈 영문 주소. 한글 제목은 Blogger 가 슬러그로 만들 때
+  전부 버려서 주소에 키워드가 하나도 남지 않는다(예: /2026-vs-7.html).
+  그래서 검색 키워드를 담은 영문 슬러그를 직접 정해야 한다.
+  소문자 영문·숫자·하이픈만, 4~7단어, 60자 이내.
+  예) 미스터트롯 투표 문자 보내는 방법 → mister-trot-vote-sms-how-to
+
 [출력 형식 엄수 — 이 형식 외 다른 텍스트 절대 금지]
 {SEP}TITLE{SEP}
 제목을 여기에
+{SEP}SLUG{SEP}
+english-slug-here
 {SEP}META{SEP}
 메타 설명을 여기에
 {SEP}LABELS{SEP}
