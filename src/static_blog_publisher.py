@@ -27,6 +27,8 @@ POSTS_DIR    = BLOG_DIR / "posts"
 MANIFEST     = BLOG_DIR / "blog-manifest.json"
 SITEMAP      = JANGBU / "public" / "sitemap.xml"
 BASE_URL     = "https://xn--wh1bw0st1gbrb.kr"
+# AdSense 게시자 ID (자동 광고). 배치는 Google 자동 광고에 위임한다.
+ADSENSE_CLIENT = os.getenv("ADSENSE_CLIENT", "ca-pub-2764893290310463")
 LOG_PATH     = _ROOT / "logs" / "static_upload_log.json"
 
 
@@ -103,8 +105,8 @@ def _post_html(post: dict, slug: str, category: str) -> str:
   <meta property="og:url" content="{BASE_URL}/blog/posts/{slug}.html">
   <link rel="canonical" href="{BASE_URL}/blog/posts/{slug}.html">
   <link rel="icon" href="/icons/icon-192.png">
-  <!-- Google AdSense -->
-  <!-- <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script> -->
+  <!-- Google AdSense (자동 광고) -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_CLIENT}" crossorigin="anonymous"></script>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', sans-serif; background: #f8f9fa; color: #1a1a1a; line-height: 1.7; }}
@@ -144,7 +146,9 @@ def _post_html(post: dict, slug: str, category: str) -> str:
     .tag {{ background: #fff3ee; color: #FF6B35; border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 600; text-decoration: none; }}
     .tag:hover {{ background: #FF6B35; color: white; }}
 
-    .ad-slot {{ background: #f0f0f0; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 12px; min-height: 90px; margin: 24px 0; }}
+    /* 광고 자리: 채워지기 전에는 회색 박스가 보이지 않도록 비워둔다 */
+    .ad-slot {{ margin: 24px 0; }}
+    .ad-slot:empty {{ margin: 0; }}
 
     .cta-box {{ background: linear-gradient(135deg, #FF6B35, #ff8c42); border-radius: 20px; padding: 32px; text-align: center; color: white; margin-top: 24px; }}
     .cta-box h3 {{ font-size: 22px; font-weight: 900; margin-bottom: 10px; }}
@@ -186,8 +190,8 @@ def _post_html(post: dict, slug: str, category: str) -> str:
       <a href="/blog/" class="nav-back">블로그 목록으로</a>
     </div>
 
-    <!-- 상단 광고 -->
-    <div class="ad-slot">광고 영역 (AdSense 승인 후 활성화)</div>
+    <!-- 상단 광고 (Google 자동 광고가 이 위치를 후보로 사용) -->
+    <div class="ad-slot"></div>
 
     <article>
       <div class="article-head">
@@ -208,8 +212,8 @@ def _post_html(post: dict, slug: str, category: str) -> str:
       </div>
     </article>
 
-    <!-- 본문 하단 광고 -->
-    <div class="ad-slot">광고 영역 (AdSense 승인 후 활성화)</div>
+    <!-- 본문 하단 광고 (Google 자동 광고가 이 위치를 후보로 사용) -->
+    <div class="ad-slot"></div>
 
     <div class="cta-box">
       <h3>매일 매출 기록, 30초면 끝!</h3>
@@ -259,9 +263,22 @@ def _save_manifest(entries: list):
 
 # ── 사이트맵 갱신 ────────────────────────────────────────────────
 
+def _existing_non_post_urls() -> list:
+    """기존 사이트맵에서 글이 아닌 <url> 블록을 그대로 살려낸다.
+
+    통째로 재생성하면 이 발행기가 모르는 URL(계산기 등)이 조용히 사라진다.
+    """
+    if not SITEMAP.exists():
+        return []
+    xml = SITEMAP.read_text(encoding="utf-8")
+    blocks = re.findall(r"[ \t]*<url>.*?</url>", xml, re.S)
+    return [b for b in blocks if "/blog/posts/" not in b]
+
+
 def _update_sitemap(entries: list):
     today = date.today().isoformat()
-    urls = [f"""  <url>
+    kept = _existing_non_post_urls()
+    urls = kept or [f"""  <url>
     <loc>{BASE_URL}/</loc>
     <changefreq>monthly</changefreq>
     <priority>1.0</priority>
