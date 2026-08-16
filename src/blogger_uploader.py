@@ -13,6 +13,7 @@ from pathlib import Path
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -40,22 +41,33 @@ class BloggerUploader:
             creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
 
         if not creds or not creds.valid:
+            refreshed = False
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
+                try:
+                    creds.refresh(Request())
+                    refreshed = True
+                except RefreshError as e:
+                    # 리프레시 토큰이 폐기된 경우(invalid_grant). 예전에는 여기서
+                    # 그냥 죽어서, 죽은 token.json 이 남아 있는 한 재로그인으로
+                    # 넘어갈 방법이 없었다. 이제는 아래 재발급 절차로 내려간다.
+                    print(f"  토큰 갱신 실패({e}) → 재로그인이 필요합니다")
+
+            if not refreshed:
                 if not CREDENTIALS_PATH.exists():
                     raise FileNotFoundError(
                         f"credentials.json 파일이 없습니다: {CREDENTIALS_PATH}\n"
                         "Google Cloud Console에서 OAuth2 클라이언트 ID를 다운로드하세요."
                     )
+                # GitHub Actions 에서는 브라우저를 띄울 수 없다. 여기까지 왔다는
+                # 것은 Secret 의 토큰이 죽었다는 뜻이므로 원인을 분명히 알린다.
+                if os.getenv("GITHUB_ACTIONS"):
+                    raise EnvironmentError(
+                        "BLOGGER_TOKEN_JSON 토큰이 만료·폐기되었습니다.\n"
+                        "로컬에서 토큰을 재발급한 뒤 GitHub Secret 을 갱신하세요."
+                    )
                 flow = InstalledAppFlow.from_client_secrets_file(
                     str(CREDENTIALS_PATH), SCOPES
                 )
-                # GitHub Actions 환경에서는 로컬 서버 불가 → 환경변수 토큰 사용
-                if os.getenv("GITHUB_ACTIONS"):
-                    raise EnvironmentError(
-                        "GitHub Actions에서는 사전 발급된 token.json이 필요합니다."
-                    )
                 creds = flow.run_local_server(port=0)
 
             TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
