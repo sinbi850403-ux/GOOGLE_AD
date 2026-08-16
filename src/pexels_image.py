@@ -153,10 +153,19 @@ def fetch_images(keyword: str, count: int = 3) -> list[str]:
         return []
 
 
+# picsum 자리표시자가 들어간 <img> 태그 전체. 교체에 실패했을 때 이 태그를
+# 통째로 걷어내기 위해 쓴다.
+_PICSUM_IMG_TAG = re.compile(r'<img[^>]+src=["\']https://picsum\.photos/[^"\']+["\'][^>]*>')
+
+
 def replace_picsum(html: str, keyword: str) -> str:
     """
     HTML 본문의 picsum.photos URL을 Pexels 실제 이미지로 교체.
-    이미지 수만큼 Pexels에서 가져오고, 부족하면 원본 유지.
+
+    교체하지 못한 자리표시자는 태그째 지운다. picsum 은 아무 사진이나
+    돌려주는 서비스라, 남겨두면 재고 관리 글에 산 사진이 붙는 식이 된다.
+    글과 무관한 사진은 없느니만 못하고, 기계가 찍어낸 글이라는 신호가 된다.
+    (실제로 그렇게 발행된 글이 있었다.)
     """
     picsum_pattern = re.compile(r'https://picsum\.photos/[^\s"\']+')
     matches = picsum_pattern.findall(html)
@@ -164,17 +173,24 @@ def replace_picsum(html: str, keyword: str) -> str:
     if not matches:
         return html
 
+    if not PEXELS_API_KEY:
+        print("  [Pexels] PEXELS_API_KEY 가 없어 이미지를 넣지 못합니다 — 자리표시자를 제거합니다")
+        return _PICSUM_IMG_TAG.sub("", html)
+
     images = fetch_images(keyword, count=len(matches))
-    if not images:
-        return html  # 실패 시 원본 유지
 
     result = html
     for i, picsum_url in enumerate(matches):
         if i < len(images):
             result = result.replace(picsum_url, images[i], 1)
 
+    # 남은 자리표시자(가져온 이미지가 부족했거나 검색 실패)는 태그째 삭제.
+    leftover = len(_PICSUM_IMG_TAG.findall(result))
+    if leftover:
+        result = _PICSUM_IMG_TAG.sub("", result)
+
     replaced = min(len(matches), len(images))
-    print(f"  [Pexels] {replaced}개 이미지 교체 완료 ('{keyword}')")
+    print(f"  [Pexels] {replaced}개 교체, {leftover}개 제거 ('{keyword}')")
     return result
 
 

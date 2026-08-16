@@ -76,6 +76,7 @@ jobs:
       - name: AdBot 실행
         env:
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
@@ -97,6 +98,7 @@ jobs:
         if: always()
         env:
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           GITHUB_ACTIONS: "true"
         run: |
