@@ -18,6 +18,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from trend_collector import TrendCollector
+from trend_picker import select_practical_topics
 from content_generator import ContentGenerator
 from blogger_uploader import BloggerUploader
 from topic_rotator import get_diverse_keywords, mark_used
@@ -74,9 +75,18 @@ def run_pipeline(
     if specific_keyword:
         keywords = [{"keyword": specific_keyword, "score": 100, "sources": ["manual"]}]
     else:
-        trend_kws = TrendCollector().get_top_keywords(top_n=count * 3)
-        keywords  = get_diverse_keywords(count, trend_kws)
-        keywords  = _deduplicate_keywords(keywords, load_recent_titles(limit=100))
+        # 트렌드 우선. 급상승 검색어 중 실용 안내로 쓸 수 있는 것만 골라 쓴다.
+        # 인물·사건성 검색어는 trend_picker 가 걸러낸다(이유는 그 모듈 주석 참고).
+        raw_trends = TrendCollector().get_google_realtime_trends(limit=20)
+        keywords   = select_practical_topics(raw_trends, count=count)
+
+        # 쓸 만한 트렌드가 없거나 모자라면 평소 카테고리 주제로 채운다.
+        # 트렌드가 없다고 발행을 거르면 블로그가 비므로 여기서는 채우는 쪽을 택한다.
+        if len(keywords) < count:
+            trend_kws = TrendCollector().get_top_keywords(top_n=count * 3)
+            keywords += get_diverse_keywords(count - len(keywords), trend_kws)
+
+        keywords = _deduplicate_keywords(keywords[:count], load_recent_titles(limit=100))
 
     if not keywords:
         print("수집된 키워드 없음 - 종료")
