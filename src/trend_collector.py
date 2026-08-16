@@ -8,7 +8,7 @@ import time
 import random
 import requests
 from datetime import datetime, timedelta
-from pytrends.request import TrendReq
+import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,36 +19,62 @@ NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 class TrendCollector:
     def __init__(self):
-        self.pytrends = TrendReq(hl="ko-KR", tz=540, timeout=(10, 30))
+        pass
 
     # ──────────────────────────────────────────
     # Google Trends
     # ──────────────────────────────────────────
 
+    # 공식 급상승 검색어 피드. pytrends 가 쓰던 내부 엔드포인트는 구글이 바꿔
+    # 404 만 돌려주게 됐다(2026-08 확인). 이 RSS 는 공개 피드라 라이브러리
+    # 없이 표준 HTTP 로 읽으며, 항목마다 관련 기사 제목까지 함께 온다.
+    TRENDS_RSS = "https://trends.google.com/trending/rss?geo=KR"
+
     def get_google_realtime_trends(self, limit: int = 20) -> list[dict]:
-        """구글 실시간 검색어 트렌드 수집"""
+        """구글 실시간 급상승 검색어 수집 (RSS)"""
         try:
-            trending = self.pytrends.trending_searches(pn="south_korea")
-            keywords = trending[0].tolist()[:limit]
-            return [{"keyword": kw, "source": "google_realtime", "score": limit - i}
-                    for i, kw in enumerate(keywords)]
+            res = requests.get(
+                self.TRENDS_RSS,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=15,
+            )
+            res.raise_for_status()
+            root = ET.fromstring(res.content)
+
+            HT = "{https://trends.google.com/trending/rss}"
+            out = []
+            for item in root.iterfind(".//item"):
+                kw = (item.findtext("title") or "").strip()
+                if not kw:
+                    continue
+                # 검색어만으로는 무엇에 대한 이슈인지 알 수 없다("죠스"가 영화인지
+                # 가게인지). 관련 기사 제목을 함께 넘겨 글 쓸 때 맥락으로 쓰게 한다.
+                # news_item_title 은 ht:news_item 안에 중첩돼 있어 .// 로 찾는다.
+                news = [
+                    (t.text or "").strip()
+                    for t in item.iterfind(f".//{HT}news_item_title")
+                    if (t.text or "").strip()
+                ]
+                out.append({
+                    "keyword": kw,
+                    "source": "google_realtime",
+                    # 피드가 주는 실제 검색량("200+", "1천+"). 순위보다 정확하다.
+                    "traffic": (item.findtext(f"{HT}approx_traffic") or "").strip(),
+                    "score": limit - len(out),
+                    "context": news[:3],
+                })
+                if len(out) >= limit:
+                    break
+
+            if not out:
+                print("[Google Trends] 급상승 검색어가 비어 있습니다")
+            return out
         except Exception as e:
             print(f"[Google Trends 오류] {e}")
             return []
 
-    def get_google_rising_trends(self, keyword: str) -> list[dict]:
-        """특정 키워드 관련 급상승 검색어"""
-        try:
-            self.pytrends.build_payload([keyword], cat=0, timeframe="now 7-d", geo="KR")
-            related = self.pytrends.related_queries()
-            rising = related.get(keyword, {}).get("rising")
-            if rising is None or rising.empty:
-                return []
-            return [{"keyword": row["query"], "source": "google_rising", "score": row["value"]}
-                    for _, row in rising.head(10).iterrows()]
-        except Exception as e:
-            print(f"[Google Rising 오류] {e}")
-            return []
+    # get_google_rising_trends 는 제거했다. pytrends 의 related_queries 에
+    # 의존했는데 그 엔드포인트가 죽었고, 호출하는 곳도 없었다.
 
     # ──────────────────────────────────────────
     # 네이버 DataLab
