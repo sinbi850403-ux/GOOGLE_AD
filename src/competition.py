@@ -43,6 +43,11 @@ import urllib.request
 
 logger = logging.getLogger(__name__)
 
+# 2026-07-31 부로 개발자센터에서 검색·데이터랩 API 신규 발급이 중단됐다.
+# 기존 키는 2027-06-30 까지만 동작하고, 신규 발급은 NAVER API Hub 에서만 된다.
+# 도메인과 인증 헤더가 다르므로 양쪽을 다 지원한다. HUB 를 먼저 본다.
+HUB_SEARCH_URL = "https://naverapihub.apigw.ntruss.com/search/v1/blog"
+HUB_TREND_URL = "https://naverapihub.apigw.ntruss.com/search-trend/v1/search"
 API_URL = "https://openapi.naver.com/v1/search/blog.json"
 DATALAB_URL = "https://openapi.naver.com/v1/datalab/search"
 CSE_URL = "https://www.googleapis.com/customsearch/v1"
@@ -58,11 +63,38 @@ _memo: dict[str, int | None] = {}
 _WARNED_NO_KEY = False
 
 
-def credentials() -> tuple[str, str] | None:
-    """NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 이 둘 다 있을 때만 돌려준다."""
+def hub_credentials() -> tuple[str, str] | None:
+    """NAVER API Hub(네이버 클라우드) 키. 신규 발급은 이쪽뿐이다."""
+    kid = os.environ.get("NCP_API_KEY_ID", "").strip()
+    key = os.environ.get("NCP_API_KEY", "").strip()
+    return (kid, key) if kid and key else None
+
+
+def legacy_credentials() -> tuple[str, str] | None:
+    """개발자센터 키. 2027-06-30 이후로는 동작하지 않는다."""
     cid = os.environ.get("NAVER_CLIENT_ID", "").strip()
     secret = os.environ.get("NAVER_CLIENT_SECRET", "").strip()
     return (cid, secret) if cid and secret else None
+
+
+def credentials() -> tuple[str, str] | None:
+    """쓸 수 있는 키가 있는지. HUB 를 먼저 본다."""
+    return hub_credentials() or legacy_credentials()
+
+
+def _endpoint(kind: str) -> tuple[str, dict] | None:
+    """(주소, 인증 헤더). kind 는 'search' 또는 'trend'."""
+    hub = hub_credentials()
+    if hub:
+        kid, key = hub
+        url = HUB_SEARCH_URL if kind == "search" else HUB_TREND_URL
+        return url, {"X-NCP-APIGW-API-KEY-ID": kid, "X-NCP-APIGW-API-KEY": key}
+    legacy = legacy_credentials()
+    if legacy:
+        cid, secret = legacy
+        url = API_URL if kind == "search" else DATALAB_URL
+        return url, {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": secret}
+    return None
 
 
 def _http_error_detail(e) -> str:
@@ -77,24 +109,29 @@ def _http_error_detail(e) -> str:
         return ""
     try:
         data = json.loads(body)
-        code = data.get("errorCode") or data.get("errorCode".lower()) or ""
-        msg = data.get("errorMessage") or data.get("message") or ""
-        return f" [{code}] {msg}".rstrip()
     except Exception:
         return f" {body}"
+
+    # 개발자센터는 {errorCode, errorMessage}, HUB 는 {error:{errorCode, message, details}}
+    inner = data.get("error") if isinstance(data.get("error"), dict) else data
+    code = inner.get("errorCode") or ""
+    msg = inner.get("errorMessage") or inner.get("message") or ""
+    details = inner.get("details") or ""
+    out = f" [{code}] {msg}".rstrip()
+    if details and details not in msg:
+        out += f" — {details}"
+    return out
 
 
 def _call_api(query: str) -> int | None:
     """블로그 문서수를 돌려준다. 못 재면 None."""
-    creds = credentials()
-    if not creds:
+    ep = _endpoint("search")
+    if not ep:
         return None
-    cid, secret = creds
+    base, headers = ep
 
-    url = f"{API_URL}?query={urllib.parse.quote(query)}&display=1"
     req = urllib.request.Request(
-        url,
-        headers={"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": secret},
+        f"{base}?query={urllib.parse.quote(query)}&display=1", headers=headers
     )
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SEC) as resp:
@@ -119,10 +156,10 @@ def _call_datalab(keywords: list[str]) -> dict[str, float] | None:
     정규화한 비율을 준다. 그래서 후보들을 한 번에 넣어 서로 비교해야 의미가
     있다. 어차피 후보끼리만 비교하므로 절대값은 필요 없다.
     """
-    creds = credentials()
-    if not creds or not keywords:
+    ep = _endpoint("trend")
+    if not ep or not keywords:
         return None
-    cid, secret = creds
+    base, headers = ep
 
     end = datetime.date.today()
     start = end - datetime.timedelta(days=30)
@@ -135,13 +172,9 @@ def _call_datalab(keywords: list[str]) -> dict[str, float] | None:
         ],
     }
     req = urllib.request.Request(
-        DATALAB_URL,
+        base,
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "X-Naver-Client-Id": cid,
-            "X-Naver-Client-Secret": secret,
-            "Content-Type": "application/json",
-        },
+        headers={**headers, "Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SEC) as resp:
@@ -281,8 +314,9 @@ def pick_best(candidates: list[str], recent_titles: list[str] | None = None,
     if not credentials() and not _google_credentials():
         if not _WARNED_NO_KEY:
             logger.info(
-                "[경쟁] NAVER_CLIENT_ID/SECRET 이 없어 경쟁 측정을 건너뜁니다. "
-                "developers.naver.com 에서 검색 API 를 등록하면 켜집니다"
+                "[경쟁] 네이버 API 키가 없어 경쟁 측정을 건너뜁니다. "
+                "NCP_API_KEY_ID/NCP_API_KEY 를 설정하세요 "
+                "(개발자센터 신규 발급은 2026-07-31 종료, NAVER API Hub 로 이관)"
             )
             _WARNED_NO_KEY = True
         return fresh[0], []
