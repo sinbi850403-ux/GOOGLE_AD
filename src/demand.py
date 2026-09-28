@@ -196,3 +196,33 @@ def best_variant(base: str, is_covered=None, source: str = DEFAULT_SOURCE
             continue
         return cand, len(sugg), sugg
     return base, len(sugg), sugg
+
+
+def best_query(phrase: str, is_covered=None, source: str = DEFAULT_SOURCE
+               ) -> tuple[str, int, str]:
+    """긴 문구에서 사람들이 실제로 치는 검색어를 뽑는다. (검색어, 제안 수, 물어본 씨앗)
+
+    best_variant 와 다른 점:
+    best_variant 는 원문 뒤에 말이 붙은 것만 받는다. 사람이 독자를 보고 고른
+    키워드의 맥락을 지키기 위해서다.
+
+    이쪽은 트렌드 주제처럼 "해외여행 추석 시즌 예약 및 항공편 선택 가이드"
+    같은 긴 문장을 받는다. 아무도 그렇게 검색하지 않으므로 그대로 쓰면
+    검색으로 들어올 길이 없다. 앞 단어로 줄여 실제 검색어를 찾고, 그 씨앗을
+    이어받는 제안 중 가장 구체적인 것을 고른다.
+    """
+    sugg, seed = topic_suggestions(phrase, source)
+    if not sugg:
+        return phrase, 0, phrase
+    head = _norm_for_prefix(seed)
+    best = None
+    for cand in sugg:
+        if not _norm_for_prefix(cand).startswith(head):
+            continue
+        if is_covered and is_covered(cand):
+            continue
+        # 씨앗보다 구체적인 것을 우선하되, 자동완성 순서(검색량 순)를 지킨다.
+        if _words(cand) > _words(seed):
+            return cand, len(sugg), seed
+        best = best or cand
+    return (best or phrase), len(sugg), seed

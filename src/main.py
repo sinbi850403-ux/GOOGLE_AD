@@ -126,8 +126,11 @@ def run_pipeline(
         title = post.get('title', '')
         category = post.get('category', '')
         _, cta_html = cta.build(kw, title, category)
-        post['html_content'] = post['html_content'].rstrip() + chr(10) + cta_html
-        print(f"  [CTA] '{kw}' -> {cta.choose_tool(kw, title, category)['label']}")
+        if cta_html:
+            post['html_content'] = post['html_content'].rstrip() + chr(10) + cta_html
+            print(f"  [CTA] '{kw}' -> {cta.choose_tool(kw, title, category)['label']}")
+        else:
+            print(f"  [CTA] '{kw}' 는 자영업과 무관 - 링크 생략")
 
     print(f"\n  {len(posts)}개 포스트 생성 완료")
 

@@ -55,6 +55,21 @@ _TOOLS = [
     },
 ]
 
+# 오늘장부가 쓸모 있는 글인지 판별하는 말들. 트렌드 블로그라 해외여행·연예처럼
+# 무관한 글이 섞인다. 그런 글에 매출 기록 앱을 권하면 읽는 사람만 당황한다.
+# 실제로 "추석 해외여행 항공편" 글에 오늘장부 링크가 붙었다.
+_BUSINESS_WORDS = (
+    # 짧고 흔한 말은 넣지 않는다. 부분 문자열로 걸리기 때문이다.
+    # "포스"(POS)를 넣었더니 "프로야구 포스트시즌"이 자영업 글로 잡혔다.
+    "사업자", "자영업", "소상공인", "사장님", "장부", "부가세", "세금계산서",
+    "절세", "경비처리", "세액공제", "종합소득세", "홈택스", "현금영수증",
+    "수수료", "가맹점", "카드매출", "신용카드", "체크카드", "단말기", "포스기",
+    "배달앱", "배민", "쿠팡이츠", "요기요", "창업", "폐업", "개업", "인건비",
+    "아르바이트", "알바생", "직원", "주휴", "4대보험", "퇴직금", "근로계약",
+    "정산", "임대료", "프랜차이즈", "매장", "음식점", "편의점", "일매출",
+    "월매출", "매출관리", "매출 관리", "간이과세", "일반과세",
+)
+
 # 맞는 계산기가 없을 때. 계산기가 없는 분야(직원관리·사업자등록 등)가 여기로 온다.
 _APP = {
     "slug": "",
@@ -68,8 +83,16 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
 
 
-def choose_tool(topic: str, title: str = "", category: str = "") -> dict:
-    """주제에 맞는 도구를 고른다. 없으면 앱."""
+def is_relevant(topic: str, title: str = "", category: str = "") -> bool:
+    """오늘장부를 권할 만한 글인지. 무관하면 CTA 를 붙이지 않는다."""
+    hay = _norm(f"{topic} {title} {category}")
+    return any(_norm(w) in hay for w in _BUSINESS_WORDS)
+
+
+def choose_tool(topic: str, title: str = "", category: str = "") -> dict | None:
+    """주제에 맞는 도구를 고른다. 자영업과 무관한 글이면 None."""
+    if not is_relevant(topic, title, category):
+        return None
     haystack = _norm(f"{topic} {title}")
 
     # 첫 매칭이 아니라 가장 많이 걸린 쪽을 고른다. 한 단어가 우연히 겹쳐
@@ -105,8 +128,10 @@ def _url(tool: dict, topic: str) -> str:
 
 
 def build(topic: str, title: str = "", category: str = "") -> tuple[str, str]:
-    """(네이버용 텍스트, HTML) 두 벌을 돌려준다."""
+    """(텍스트, HTML) 두 벌. 무관한 글이면 빈 문자열 두 개."""
     tool = choose_tool(topic, title, category)
+    if tool is None:
+        return "", ""
     url = _url(tool, topic)
 
     if tool["slug"]:
