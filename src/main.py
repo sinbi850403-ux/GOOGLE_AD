@@ -22,6 +22,8 @@ from trend_picker import select_practical_topics
 from content_generator import ContentGenerator
 from blogger_uploader import BloggerUploader
 from topic_rotator import get_diverse_keywords, mark_used
+
+import cta
 from coupang_affiliate import build_product_section
 from indexing_submitter import submit_new_posts, is_configured as indexing_configured
 from static_blog_publisher import StaticBlogPublisher
@@ -114,6 +116,18 @@ def run_pipeline(
         if section:
             post["html_content"] = post["html_content"].rstrip() + "\n" + section
             print(f"  [쿠팡] '{post['source_keyword']}' 추천상품 삽입")
+
+    # ── 2.6단계: 주제에 맞는 CTA ────────
+    # 지금까지 이 블로그 글에는 CTA 가 전혀 없었다. 읽고 나면 그걸로 끝이라
+    # 트래픽이 생겨도 아무 데로도 이어지지 않았다. utm 을 붙여 어느 글이
+    # 사람을 보내는지 GA4 에서 볼 수 있게 한다.
+    for post in posts:
+        kw = post.get('source_keyword', '')
+        title = post.get('title', '')
+        category = post.get('category', '')
+        _, cta_html = cta.build(kw, title, category)
+        post['html_content'] = post['html_content'].rstrip() + chr(10) + cta_html
+        print(f"  [CTA] '{kw}' -> {cta.choose_tool(kw, title, category)['label']}")
 
     print(f"\n  {len(posts)}개 포스트 생성 완료")
 

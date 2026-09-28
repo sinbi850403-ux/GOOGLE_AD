@@ -81,6 +81,8 @@ jobs:
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          GOOGLE_CSE_KEY: ${{ secrets.GOOGLE_CSE_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
           POSTS_PER_DAY: ${{ github.event.inputs.count || '1' }}
           PUBLISH_AS_DRAFT: ${{ github.event.inputs.draft || 'false' }}
           GITHUB_ACTIONS: "true"

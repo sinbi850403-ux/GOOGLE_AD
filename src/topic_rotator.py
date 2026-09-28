@@ -5,6 +5,8 @@
 
 import json
 import os
+
+import competition
 from datetime import datetime
 from pathlib import Path
 
@@ -239,13 +241,47 @@ def _match_trend_to_category(trends: list[dict], category: str, already: list[st
     return None
 
 
+# 한 번에 경쟁 강도를 비교해 볼 후보 수. 늘리면 더 나은 자리를 찾지만 API 호출도 는다.
+CANDIDATES_PER_PICK = int(os.getenv("COMPETITION_CANDIDATES", "4"))
+
+
 def _pick_from_pool(category: str, used: list[str]) -> str:
+    """카테고리 풀에서 키워드 하나. 검색량 대비 경쟁이 얕은 쪽을 고른다.
+
+    전에는 GITHUB_RUN_ID 나머지로 아무거나 집었다. 그러면 검색량이 얼마인지,
+    이미 쓴 사람이 몇인지 모르는 채로 쓴다. 이길 수 없는 자리에 쓰면 같은
+    노력으로 아무도 안 온다.
+
+    측정이 안 되면(키 없음·API 실패) 기존처럼 run_id 로 고른다. 경쟁 측정은
+    보조이며 이것 때문에 발행이 멈춰서는 안 된다.
+    """
     pool = KEYWORD_POOL.get(category, [])
     unused = [kw for kw in pool if kw not in used]
     if not unused:
         unused = pool  # 전부 썼으면 처음부터 재사용
     if not unused:
         return category
+
     run_id = os.getenv("GITHUB_RUN_ID", "0")
     offset = int(run_id) % len(unused) if run_id.isdigit() else 0
-    return unused[offset]
+
+    # run_id 위치에서 시작해 이어지는 후보 몇 개를 놓고 비교한다.
+    candidates = []
+    for k in range(CANDIDATES_PER_PICK):
+        kw = unused[(offset + k) % len(unused)]
+        if kw not in candidates:
+            candidates.append(kw)
+
+    try:
+        chosen, measured = competition.pick_best(candidates, used[-30:])
+    except Exception as e:
+        print(f"[경쟁] 측정 중 오류({type(e).__name__}) - 기존 방식으로 선택")
+        return unused[offset]
+
+    if measured:
+        detail = " | ".join(
+            f"{k} 경쟁{n if n is not None else '?'}·검색{round(q, 1) if q is not None else '?'}"
+            for k, n, q in measured
+        )
+        print(f"[경쟁] {detail} -> '{chosen}' 선택")
+    return chosen
