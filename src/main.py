@@ -23,7 +23,9 @@ from content_generator import ContentGenerator
 from blogger_uploader import BloggerUploader
 from topic_rotator import get_diverse_keywords, mark_used
 
+import competition
 import cta
+import demand
 from coupang_affiliate import build_product_section
 from indexing_submitter import submit_new_posts, is_configured as indexing_configured
 from static_blog_publisher import StaticBlogPublisher
@@ -59,6 +61,38 @@ def _deduplicate_keywords(keywords: list[dict], recent_titles: list[str]) -> lis
     return sorted(keywords, key=lambda k: overlap(k["keyword"]))
 
 
+
+def _to_search_queries(keywords: list[dict], recent_titles: list[str]) -> list[dict]:
+    """트렌드 주제를 사람들이 실제로 치는 검색어로 바꾼다.
+
+    트렌드 주제는 "해외여행 추석 연휴 가는 나라 선택 가이드" 같은 긴 문장으로
+    온다. 아무도 그렇게 검색하지 않으므로 그대로 쓰면 검색으로 들어올 길이
+    없다. 자동완성으로 실제 검색어를 찾는다.
+
+    키워드 풀에서 온 것(sources 에 "pool")은 건드리지 않는다. 사람이 독자를
+    보고 고른 것이고 topic_rotator 에서 이미 다뤘다.
+    """
+    out = []
+    for kw in keywords:
+        if "pool" in (kw.get("sources") or []):
+            out.append(kw)
+            continue
+        raw = kw["keyword"]
+        query, n_sugg, seed = demand.best_query(
+            raw, is_covered=lambda ph: competition.already_covered(ph, recent_titles)
+        )
+        if query != raw:
+            print(f"  [수요] '{raw}' -> 검색어 '{query}' (씨앗 '{seed}', 제안 {n_sugg}개)")
+            kw = {**kw, "keyword": query, "source_phrase": raw}
+        elif n_sugg == 0:
+            print(f"  [수요] '{raw}' 는 자동완성 제안이 없습니다 (검색 유입 기대 어려움)")
+        else:
+            # 제안은 있는데 씨앗을 이어받는 것이 없었다. 문장을 그대로 쓰게 되므로
+            # 검색 유입은 기대하기 어렵다. 어느 쪽인지 로그로 구분해 둔다.
+            print(f"  [수요] '{raw}' 에 맞는 검색어를 찾지 못했습니다 (제안 {n_sugg}개, 씨앗 '{seed}')")
+        out.append(kw)
+    return out
+
 def run_pipeline(
     count: int = DEFAULT_POSTS_PER_DAY,
     draft: bool = PUBLISH_DRAFT,
@@ -89,6 +123,7 @@ def run_pipeline(
             keywords += get_diverse_keywords(count - len(keywords), trend_kws)
 
         keywords = _deduplicate_keywords(keywords[:count], load_recent_titles(limit=100))
+        keywords = _to_search_queries(keywords, load_recent_titles(limit=100))
 
     if not keywords:
         print("수집된 키워드 없음 - 종료")

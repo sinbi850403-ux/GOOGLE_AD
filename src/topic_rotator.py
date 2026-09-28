@@ -203,18 +203,6 @@ def get_diverse_keywords(count: int, trend_keywords: list[dict]) -> list[dict]:
         cat = remaining[i % len(remaining)]
         matched = _match_trend_to_category(trend_keywords, cat, [r["keyword"] for r in result])
         if matched:
-            # 트렌드 주제는 "해외여행 추석 시즌 예약 및 항공편 선택 가이드" 같은
-            # 긴 문장으로 온다. 아무도 그렇게 검색하지 않으므로 그대로 쓰면
-            # 검색으로 들어올 길이 없다. 실제로 쓰이는 검색어로 바꾼다.
-            raw = matched["keyword"]
-            query, n_sugg, seed = demand.best_query(
-                raw, is_covered=lambda ph: competition.already_covered(ph, used[-30:])
-            )
-            if query != raw:
-                print(f"[수요] 트렌드 '{raw}' -> 검색어 '{query}' (씨앗 '{seed}', 제안 {n_sugg}개)")
-                matched = {**matched, "keyword": query, "source_phrase": raw}
-            elif n_sugg == 0:
-                print(f"[수요] 트렌드 '{raw}' 는 자동완성 제안이 없습니다 (검색 유입 기대 어려움)")
             result.append(matched)
         else:
             kw = _pick_from_pool(cat, used + [r["keyword"] for r in result])
