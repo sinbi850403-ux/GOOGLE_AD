@@ -27,3 +27,7 @@ Thumbs.db
 
 # OAuth 클라이언트 시크릿 — 절대 커밋 금지
 client_secret_*.json
+
+# 재인증 산출물 — 리프레시 토큰이 들어 있다
+BLOGGER_TOKEN_JSON.txt
+config/token.json.bak
