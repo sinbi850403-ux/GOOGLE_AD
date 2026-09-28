@@ -7,6 +7,7 @@ import json
 import os
 
 import competition
+import demand
 from datetime import datetime
 from pathlib import Path
 
@@ -244,6 +245,9 @@ def _match_trend_to_category(trends: list[dict], category: str, already: list[st
 # 한 번에 경쟁 강도를 비교해 볼 후보 수. 늘리면 더 나은 자리를 찾지만 API 호출도 는다.
 CANDIDATES_PER_PICK = int(os.getenv("COMPETITION_CANDIDATES", "4"))
 
+# 후보가 전부 수요 0 일 때 풀을 몇 개까지 더 뒤질지.
+MAX_SCAN_PER_PICK = int(os.getenv("COMPETITION_MAX_SCAN", "12"))
+
 
 def _pick_from_pool(category: str, used: list[str]) -> str:
     """카테고리 풀에서 키워드 하나. 검색량 대비 경쟁이 얕은 쪽을 고른다.
@@ -265,15 +269,35 @@ def _pick_from_pool(category: str, used: list[str]) -> str:
     run_id = os.getenv("GITHUB_RUN_ID", "0")
     offset = int(run_id) % len(unused) if run_id.isdigit() else 0
 
-    # run_id 위치에서 시작해 이어지는 후보 몇 개를 놓고 비교한다.
+    # run_id 위치에서 시작해 이어지는 후보들. 전부 수요 0 이면 창을 넓혀 더 뒤진다.
     candidates = []
-    for k in range(CANDIDATES_PER_PICK):
+    for k in range(min(MAX_SCAN_PER_PICK, len(unused))):
         kw = unused[(offset + k) % len(unused)]
         if kw not in candidates:
             candidates.append(kw)
+        if len(candidates) >= CANDIDATES_PER_PICK and any(
+            demand.demand(c) > 0 for c in candidates
+        ):
+            break
+
+    # 수요는 구글 자동완성으로 잰다. API 키가 필요 없고, 제안 개수가 검색
+    # 수요의 하한선이 된다. 이 블로그는 구글이 대상이라 구글 자동완성이 맞다.
+    def _demand(keywords):
+        return {k: float(demand.demand(k)) for k in keywords}
 
     try:
-        chosen, measured = competition.pick_best(candidates, used[-30:])
+        chosen, measured = competition.pick_best(
+            candidates, used[-30:], demand_fetch=_demand
+        )
+        # 제안 목록은 검색이 확인된 롱테일이다. 머리 키워드보다 경쟁이 얕다.
+        variant, n_sugg, _ = demand.best_variant(
+            chosen, is_covered=lambda ph: competition.already_covered(ph, used[-30:])
+        )
+        if variant != chosen:
+            print(f"[수요] '{chosen}' -> 롱테일 '{variant}' (제안 {n_sugg}개)")
+            chosen = variant
+        elif n_sugg == 0:
+            print(f"[수요] '{chosen}' 은 자동완성 제안이 없습니다 (수요 낮음)")
     except Exception as e:
         print(f"[경쟁] 측정 중 오류({type(e).__name__}) - 기존 방식으로 선택")
         return unused[offset]

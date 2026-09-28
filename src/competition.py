@@ -61,6 +61,7 @@ DATALAB_MAX_GROUPS = 5
 _memo: dict[str, int | None] = {}
 
 _WARNED_NO_KEY = False
+_WARNED_DEMAND_ONLY = False
 
 
 def hub_credentials() -> tuple[str, str] | None:
@@ -311,17 +312,18 @@ def pick_best(candidates: list[str], recent_titles: list[str] | None = None,
         fresh = candidates
 
     global _WARNED_NO_KEY
-    if not credentials() and not _google_credentials():
+    # 공급(문서수)은 API 키가 있어야 잰다. 키가 없어도 수요만으로 고를 수 있으므로
+    # 여기서 멈추지 않는다. 수요는 자동완성으로 키 없이 잰다(demand 모듈).
+    if not credentials() and docs_fetch is None:
         if not _WARNED_NO_KEY:
             logger.info(
-                "[경쟁] 네이버 API 키가 없어 경쟁 측정을 건너뜁니다. "
-                "NCP_API_KEY_ID/NCP_API_KEY 를 설정하세요 "
-                "(개발자센터 신규 발급은 2026-07-31 종료, NAVER API Hub 로 이관)"
+                "[경쟁] 네이버 API 키가 없어 문서수(공급) 측정은 건너뜁니다. "
+                "수요만으로 고릅니다"
             )
             _WARNED_NO_KEY = True
-        return fresh[0], []
-
-    docs = {k: document_count(k, fetch=docs_fetch) for k in fresh}
+        docs = {k: None for k in fresh}
+    else:
+        docs = {k: document_count(k, fetch=docs_fetch) for k in fresh}
     demand = relative_demand(fresh, fetch=demand_fetch) or {}
     measured = [(k, docs.get(k), demand.get(k)) for k in fresh]
 
@@ -338,10 +340,14 @@ def pick_best(candidates: list[str], recent_titles: list[str] | None = None,
         best = max(usable, key=lambda x: (x[1], -fresh.index(x[0])))[0]
         return best, measured
 
-    # 수요만 측정된 경우 — 많이 찾는 쪽
+    # 수요만 측정된 경우 — 많이 찾는 쪽.
+    # 키 없이 도는 것이 기본 상태이므로 매번 경고하지 않는다.
     only_demand = [(k, demand[k]) for k in fresh if k in demand]
     if only_demand:
-        logger.warning("[경쟁] 문서수를 못 재 검색량만으로 고릅니다")
+        global _WARNED_DEMAND_ONLY
+        if not _WARNED_DEMAND_ONLY:
+            logger.info("[경쟁] 문서수 없이 수요만으로 고릅니다")
+            _WARNED_DEMAND_ONLY = True
         return max(only_demand, key=lambda x: (x[1], -fresh.index(x[0])))[0], measured
 
     # 공급만 측정된 경우 — 적게 쓰인 쪽
